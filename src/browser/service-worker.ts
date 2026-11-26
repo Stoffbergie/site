@@ -1,5 +1,5 @@
 import { fileListPage } from "../pages";
-import { decodePath, folderLocation, pageLocation, parseRange, resolve, type ByteRange, type Target } from "../resolve";
+import { decodePath, parseRange, redirectLocation, resolve, type ByteRange, type Target } from "../resolve";
 import { CHUNK_SIZE, chunkCount, fetchEntry, fetchMeta, NotPrivate, openChunk, openDeploy, readKey, SEALED_CHUNK_SIZE, TAG_SIZE, WrongKey, type Meta, type Site } from "./site";
 
 type ExtendableEvent = Event & { waitUntil(promise: Promise<unknown>): void };
@@ -61,8 +61,11 @@ async function answer(request: Request, url: URL): Promise<Response> {
   const pathname = decodePath(url.pathname);
   if (pathname === null) return notFound();
   const target = resolve(site, pathname);
-  if (target.kind === "folder") return new Response(null, { status: 308, headers: { Location: folderLocation(url) } });
-  if (target.kind === "page") return new Response(null, { status: 308, headers: { Location: pageLocation(url) } });
+  if (target.kind === "redirect") {
+    const location = redirectLocation(target.path, url);
+    if (location === null) return notFound();
+    return new Response(null, { status: 308, headers: { Location: location } });
+  }
   if (request.mode === "navigate" && !cameFromThisSite(request)) return bootstrapPage(statusOf(target));
   if (target.kind === "missing") return notFound();
   if (target.kind === "list") return html(fileListPage(url.hostname, site.files));

@@ -43,6 +43,23 @@ test("a deployed folder is browsable at its own URL with clean URLs and a 404 pa
   assert.equal((await visit(url, "/node_modules/pkg/index.js")).status, 404);
 });
 
+test("redirects point at the decoded path the lookup used and keep the query string", async () => {
+  const { url } = await deploy(["--no-copy", folder({ "index.html": page, "about.html": "<h1>About</h1>", "My Docs/index.html": "<h1>Docs</h1>" })]);
+  const cases = [
+    ["/about%2F?x=1", "/about?x=1"],
+    ["/about/%2F", "/about"],
+    ["//about/", "/about"],
+    ["/My%20Docs", "/My%20Docs/"],
+    ["/About%2F%2F", "/About"],
+    ["//My%20Docs?a=b", "/My%20Docs/?a=b"]
+  ];
+  for (const [path, location] of cases) {
+    const redirect = await visit(url, path);
+    assert.equal(redirect.status, 308, path);
+    assert.equal(redirect.headers.location, location, path);
+  }
+});
+
 test("text files are stored gzipped and reach gzip and plain clients intact", async () => {
   const { url, run } = await deploy(["--no-copy", folder({ "index.html": page })]);
   const stored = Number(/· ([\d.]+) B/.exec(run.stderr)?.[1]);

@@ -2,7 +2,7 @@ import { knownType } from "./types";
 
 export type ListedFile = { path: string; type: string; length: number };
 export type Listing = { spa: boolean; files: ListedFile[]; byPath: Map<string, number> };
-export type Target = { kind: "file"; number: number; status: 200 | 404 } | { kind: "folder" } | { kind: "page" } | { kind: "list" } | { kind: "missing" };
+export type Target = { kind: "file"; number: number; status: 200 | 404 } | { kind: "redirect"; path: string } | { kind: "list" } | { kind: "missing" };
 export type ByteRange = { offset: number; length: number };
 
 /**
@@ -27,10 +27,10 @@ export function resolve(listing: Listing, pathname: string): Target {
     if (relative.endsWith("/")) {
       const withoutSlash = relative.slice(0, -1);
       const page = firstMatch([withoutSlash, `${withoutSlash}.html`, `${withoutSlash}.htm`], lookup);
-      if (page !== undefined) return { kind: "page" };
+      if (page !== undefined) return { kind: "redirect", path: `/${withoutSlash}` };
     }
     const folderIndex = firstMatch([`${relative}/index.html`, `${relative}/index.htm`], lookup);
-    if (relative !== "" && folderIndex !== undefined) return { kind: "folder" };
+    if (relative !== "" && folderIndex !== undefined) return { kind: "redirect", path: `/${relative}/` };
   }
 
   if (relative === "") {
@@ -90,12 +90,14 @@ function firstMatch(paths: string[], lookup: (path: string) => number | undefine
   return undefined;
 }
 
-export function folderLocation(url: URL): string {
-  return `${collapseSlashes(url.pathname)}/${url.search}`;
-}
-
-export function pageLocation(url: URL): string {
-  return `${collapseSlashes(url.pathname).replace(/\/$/, "")}${url.search}`;
+export function redirectLocation(path: string, url: URL): string | null {
+  const encodedPath = path
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+  const location = `${encodedPath}${url.search}`;
+  if (location === `${url.pathname}${url.search}`) return null;
+  return location;
 }
 
 function collapseSlashes(pathname: string): string {

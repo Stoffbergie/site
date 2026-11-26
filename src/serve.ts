@@ -5,7 +5,7 @@ import type { Env } from "./env";
 import { isDeployId, nameProblem } from "./names";
 import type { PackFile } from "./pack";
 import { fileListPage, privateSitePage } from "./pages";
-import { decodePath, folderLocation, pageLocation, parseRange, resolve } from "./resolve";
+import { decodePath, parseRange, redirectLocation, resolve } from "./resolve";
 import { deployKey, EDGE_SECONDS, loadDeploy, readPointer, type Deploy } from "./storage";
 
 const ENTRY_PATH = /^\/__site\/entries\/(0|[1-9]\d*)$/;
@@ -42,8 +42,11 @@ export async function serveSite(request: Request, env: Env, ctx: ExecutionContex
   const target = resolve({ spa: deploy.index.spa, files: deploy.index.files, byPath: deploy.byPath }, pathname);
 
   if (target.kind === "missing") return notFound();
-  if (target.kind === "folder") return new Response(null, { status: 308, headers: { Location: folderLocation(url), "Cache-Control": REVALIDATE } });
-  if (target.kind === "page") return new Response(null, { status: 308, headers: { Location: pageLocation(url), "Cache-Control": REVALIDATE } });
+  if (target.kind === "redirect") {
+    const location = redirectLocation(target.path, url);
+    if (location === null) return notFound();
+    return new Response(null, { status: 308, headers: { Location: location, "Cache-Control": REVALIDATE } });
+  }
   if (target.kind === "list") return listing(request, deploy, named, url.hostname);
   return serveFile(request, env, ctx, deploy, target.number, target.status, named);
 }

@@ -280,6 +280,13 @@ add("flat", "page URL with a trailing slash keeps the query string", async (t) =
   await t.goto("/about/?ref=x");
   await t.expect("about", { path: "/about", search: "?ref=x" });
 });
+add("flat", "page URL with an encoded trailing slash redirects to the page", async (t) => {
+  await warm(t);
+  await t.goto("/about%2F?x=1");
+  await t.expect("about", { path: "/about", search: "?x=1" });
+  await t.goto("/about/%2F");
+  await t.expect("about", { path: "/about" });
+});
 add("noReferrer", "pages that send no referrer navigate back and forth quickly", async (t) => {
   await warm(t, "/", "noref-home");
   for (let round = 0; round < 3; round += 1) {
