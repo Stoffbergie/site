@@ -50,9 +50,17 @@ function keepsReopening(target: string): boolean {
   }
 }
 
+function sendSameSiteReferrer(): void {
+  const policy = document.createElement("meta");
+  policy.name = "referrer";
+  policy.content = "same-origin";
+  document.head.append(policy);
+}
+
 function openPage(link: Link): void {
   const target = withAnchor(link.anchor);
   history.replaceState(null, "", OPENING_PATH);
+  sendSameSiteReferrer();
   location.replace(target);
 }
 
