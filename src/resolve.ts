@@ -20,7 +20,11 @@ export function resolve(listing: Listing, pathname: string): Target {
   }
   const exactly = (path: string): number | undefined => byPath.get(path);
   const foldedPaths = foldedPathsOf(files);
-  const ignoringCase = (path: string): number | undefined => foldedPaths.get(fold(path));
+  const ignoringCase = (path: string): number | undefined => {
+    const number = foldedPaths.get(fold(path));
+    if (number === null) return undefined;
+    return number;
+  };
   for (const lookup of [exactly, ignoringCase]) {
     const number = firstMatch(candidates, lookup);
     if (number !== undefined) return { kind: "file", number, status: 200 };
@@ -55,15 +59,16 @@ export function resolve(listing: Listing, pathname: string): Target {
   return { kind: "missing" };
 }
 
-const foldedPathsCache = new WeakMap<ListedFile[], Map<string, number>>();
+const foldedPathsCache = new WeakMap<ListedFile[], Map<string, number | null>>();
 
-function foldedPathsOf(files: ListedFile[]): Map<string, number> {
+function foldedPathsOf(files: ListedFile[]): Map<string, number | null> {
   let folded = foldedPathsCache.get(files);
   if (folded === undefined) {
     folded = new Map();
     for (const [position, file] of files.entries()) {
       const key = fold(file.path);
-      if (!folded.has(key)) folded.set(key, position);
+      if (folded.has(key)) folded.set(key, null);
+      else folded.set(key, position);
     }
     foldedPathsCache.set(files, folded);
   }
