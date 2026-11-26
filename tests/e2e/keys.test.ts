@@ -62,6 +62,7 @@ test("a key saved by an older site gains its private part and still owns its dep
   const saved = JSON.parse(readFileSync(join(configDir, "config.json"), "utf8")) as { key: string; secret: string };
   assert.equal(saved.key, olderKey, "an older site still reads only the login part");
   assert.equal(`${saved.key}.${saved.secret}`, upgraded);
+  assert.equal(statSync(join(configDir, "config.json")).mode & 0o777, 0o600, "the replaced key file is private");
 });
 
 test("private sites need the whole key, not only the part the server sees", async () => {

@@ -212,13 +212,30 @@ fn save_first(config: &Config) -> Result<bool> {
 fn write_partial(path: &std::path::Path, config: &Config) -> Result<PathBuf> {
     std::fs::create_dir_all(path.parent().context("config directory is missing")?)?;
     let partial = path.with_extension(format!("json.{}.part", std::process::id()));
-    std::fs::write(&partial, serde_json::to_vec_pretty(config)?)?;
+    let contents = serde_json::to_vec_pretty(config)?;
     #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&partial, std::fs::Permissions::from_mode(0o600))?;
-    }
+    write_private(&partial, &contents)?;
+    #[cfg(not(unix))]
+    std::fs::write(&partial, contents)?;
     Ok(partial)
+}
+
+#[cfg(unix)]
+fn write_private(path: &std::path::Path, contents: &[u8]) -> Result<()> {
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    match std::fs::remove_file(path) {
+        Ok(()) => {}
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)?;
+    file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    file.write_all(contents)?;
+    Ok(())
 }
 
 fn path() -> Result<PathBuf> {
