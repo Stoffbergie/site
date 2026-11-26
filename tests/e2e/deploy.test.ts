@@ -17,7 +17,7 @@ test("a deployed folder is browsable at its own URL with clean URLs and a 404 pa
     "node_modules/pkg/index.js": "nope"
   });
   const { url, run } = await deploy(["--no-copy", root]);
-  assert.match(url, /^https:\/\/[a-z0-9]{8}\.site\.test$/);
+  assert.match(url, /^https:\/\/[a-z0-9]{8}\.site\.localhost$/);
   assert.match(run.stderr, /5 files/);
 
   const home = await visit(url, "/");
@@ -135,6 +135,6 @@ test("--spa serves index.html for routes without a file extension", async () => 
 test("deployed sites are read-only and unknown hosts have no site", async () => {
   const { url } = await deploy(["--no-copy", folder({ "index.html": "hi" })]);
   assert.equal((await visit(url, "/", { method: "POST" })).status, 405);
-  assert.equal((await visit("https://zzzz2222.site.test", "/")).status, 404);
-  assert.equal((await visit("https://nobody-here.site.test", "/")).status, 404);
+  assert.equal((await visit("https://zzzz2222.site.localhost", "/")).status, 404);
+  assert.equal((await visit("https://nobody-here.site.localhost", "/")).status, 404);
 });

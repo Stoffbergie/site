@@ -6,8 +6,8 @@ test("a name points at the latest deploy and a redeploy is visible on the very n
   const home = newHome();
   const name = uniqueName("todo");
   const first = await deploy(["--no-copy", "-n", name, folder({ "index.html": "<h1>One</h1>" })], { home });
-  assert.equal(first.url, `https://${name}.site.test`);
-  const firstId = /https:\/\/([a-z0-9]{8})\.site\.test/.exec(first.run.stderr)?.[1];
+  assert.equal(first.url, `https://${name}.site.localhost`);
+  const firstId = /https:\/\/([a-z0-9]{8})\.site\.localhost/.exec(first.run.stderr)?.[1];
   assert.ok(firstId, `the per-deploy URL goes to stderr: ${first.run.stderr}`);
 
   const before = await visit(first.url);
@@ -30,7 +30,7 @@ test("another key cannot take a name", async () => {
   assert.equal(stranger.code, 1);
   assert.equal(stranger.stdout, "");
   assert.match(stranger.stderr, /^site: that name is taken; pick another\n$/);
-  assert.equal((await visit(`https://${name}.site.test`)).text, "owner");
+  assert.equal((await visit(`https://${name}.site.localhost`)).text, "owner");
 });
 
 test("the same key on a second machine redeploys, lists and rolls back with point", async () => {
@@ -49,8 +49,8 @@ test("the same key on a second machine redeploys, lists and rolls back with poin
 
   const listed = await runCli(["ls"], { home: laptop });
   assert.equal(listed.code, 0, listed.stderr);
-  assert.match(listed.stdout, new RegExp(`https://${name}\\.site\\.test\\s+→ [a-z0-9]{8}`));
-  assert.equal(listed.stdout.match(/^https:\/\/[a-z0-9]{8}\.site\.test\s+(just now|\dm ago)\s+\d+ B\s+1 file$/gm)?.length, 2, listed.stdout);
+  assert.match(listed.stdout, new RegExp(`https://${name}\\.site\\.localhost\\s+→ [a-z0-9]{8}`));
+  assert.equal(listed.stdout.match(/^https:\/\/[a-z0-9]{8}\.site\.localhost\s+(just now|\dm ago)\s+\d+ B\s+1 file$/gm)?.length, 2, listed.stdout);
 
   const pointed = await runCli(["point", name, firstId], { home: desktop });
   assert.equal(pointed.code, 0, pointed.stderr);
@@ -70,7 +70,7 @@ test("rm refuses a deploy a name points at, then releases the name and deletes t
 
   const released = await runCli(["rm", name], { home });
   assert.equal(released.code, 0, released.stderr);
-  assert.equal((await visit(`https://${name}.site.test`)).status, 404);
+  assert.equal((await visit(`https://${name}.site.localhost`)).status, 404);
 
   const deleted = await runCli(["rm", id], { home });
   assert.equal(deleted.code, 0, deleted.stderr);

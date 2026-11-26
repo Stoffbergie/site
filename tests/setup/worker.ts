@@ -3,6 +3,7 @@ import type { AddressInfo } from "node:net";
 import { cloudflare } from "@cloudflare/vite-plugin";
 import { createServer } from "vite-plus";
 import type { TestProject } from "vite-plus/test/node";
+import { browserScripts } from "../../vite.browser";
 
 declare module "vite-plus/test" {
   export interface ProvidedContext {
@@ -13,7 +14,7 @@ declare module "vite-plus/test" {
   }
 }
 
-const siteDomain = "site.test";
+const siteDomain = "site.localhost";
 const adminToken = "test-admin-token";
 const testLimits = [
   { name: "DEPLOYS", namespace_id: "2006", simple: { limit: 100_000, period: 60 as const } },
@@ -26,6 +27,7 @@ export default async function startWorker(project: TestProject): Promise<() => P
     configFile: false,
     logLevel: "error",
     plugins: [
+      browserScripts(),
       cloudflare({
         persistState: false,
         config: (workerConfig) => {

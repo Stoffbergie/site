@@ -15,7 +15,7 @@ function pack(index: unknown, data: Buffer): Buffer {
 test("curl -T deploys a single file with its type taken from the filename", async () => {
   const root = folder({ "page.html": "<h1>From curl</h1>" });
   const printed = execFileSync("curl", ["-fsS", "-T", join(root, "page.html"), baseUrl], { encoding: "utf8" });
-  assert.match(printed, /^https:\/\/[a-z0-9]{8}\.site\.test\n$/);
+  assert.match(printed, /^https:\/\/[a-z0-9]{8}\.site\.localhost\n$/);
   const url = printed.trim();
 
   const home = await visit(url, "/");
