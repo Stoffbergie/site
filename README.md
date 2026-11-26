@@ -140,12 +140,14 @@ The key has two parts joined by a dot. The part before the dot signs you in. The
 
 Encrypted sites follow the same rules, applied in the browser. With `--spa`, unknown paths without a file extension serve `index.html`. With no `index.html`, a lone HTML file is the page at `/`, a single file is served at `/` and under its name, and anything else shows a file list.
 
+Every file is served with its standard content type, taken from its extension: the same table as the `mime` and `mime-db` packages that Cloudflare and GitHub Pages use, so feeds, manifests, source maps, modules, fonts, media, HLS and DASH streams, captions, 3D models, `.wasm` and documents behave as they do elsewhere. Files with an unknown extension or none, like `LICENSE` or `CNAME`, are served as UTF-8 plain text when they look like text and as `application/octet-stream`, a download, when they do not. Nothing is ever sniffed into HTML or script.
+
 Text files are compressed before upload and served compressed. Other files support byte ranges. Deploy URLs are cached by browsers for a year, since a deploy never changes; named URLs revalidate on every load.
 
 <details>
 <summary><strong>Use curl, no install needed</strong></summary>
 
-Deploy a single file. The type comes from its filename:
+Deploy a single file. The type comes from its filename, as above:
 
 ```sh
 curl -T page.html https://site.stoff.dev

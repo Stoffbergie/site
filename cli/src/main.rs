@@ -8,6 +8,7 @@ mod crypto;
 mod dotfiles;
 mod output;
 mod pack;
+mod types;
 
 const PRIVATE_LINKS_NEED_WHOLE_KEY: &str = "Private links need the whole key, including the part after the dot; use the key that made them";
 
