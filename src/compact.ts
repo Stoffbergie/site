@@ -36,7 +36,7 @@ export type CompactPack = { index: PackIndex; source: ReadableStream<Uint8Array>
 
 type Reuse = { id: string; file: number };
 type CompactEntry = { path: string; length: number; type: string; encoding: "br" | "gzip" | null; reuse: Reuse | null };
-type Earlier = { files: PackFile[]; dataStart: number; etag: string };
+type Earlier = { files: PackFile[]; dataStart: number; etag: string; headerRules: string };
 type Segment = { kind: "body"; length: number } | { kind: "copy"; id: string; etag: string; offset: number; length: number };
 
 const STALE = { problem: "An earlier deploy this one builds on is gone; deploy again.", status: 412 as const };
@@ -79,7 +79,7 @@ export async function readCompactPack(env: Env, taker: StreamTaker, bodyLength: 
       const original = source.files[entry.reuse.file];
       if (!original || original.length !== entry.length || encodingOf(original) !== entry.encoding) return STALE;
       addSegment(segments, { kind: "copy", id: entry.reuse.id, etag: source.etag, offset: source.dataStart + original.offset, length: entry.length });
-      file.origin = original.origin ?? `${entry.reuse.id}-${entry.reuse.file}`;
+      if (source.headerRules === entries.headerRules && original.type === entry.type) file.origin = original.origin ?? `${entry.reuse.id}-${entry.reuse.file}`;
     } else {
       addSegment(segments, { kind: "body", length: entry.length });
       bodyBytes += entry.length;
@@ -234,7 +234,7 @@ async function loadEarlier(env: Env, id: string, owner: string | null): Promise<
   if (bytes.byteLength < headerLength) return null;
   const index = decodeIndex(bytes.subarray(PREAMBLE_LENGTH, headerLength), indexWrittenByWorker(start));
   if (index.encrypted) return null;
-  return { files: index.files, dataStart: headerLength, etag: start.etag };
+  return { files: index.files, dataStart: headerLength, etag: start.etag, headerRules: headerRulesOf(index.rules) };
 }
 
 function sameSource(object: R2ObjectBody | R2Object | null, etag: string, owner: string | null): R2ObjectBody | null {
@@ -243,13 +243,17 @@ function sameSource(object: R2ObjectBody | R2Object | null, etag: string, owner:
   return object;
 }
 
+function headerRulesOf(rules: SiteRules | undefined): string {
+  return JSON.stringify(rules?.headers ?? []);
+}
+
 function encodingOf(file: PackFile): "br" | "gzip" | null {
   if (file.br) return "br";
   if (file.gzip) return "gzip";
   return null;
 }
 
-function checkEntries(json: Uint8Array): { spa: boolean; files: CompactEntry[]; rules?: SiteRules } | { problem: string } {
+function checkEntries(json: Uint8Array): { spa: boolean; files: CompactEntry[]; rules?: SiteRules; headerRules: string } | { problem: string } {
   let parsed: unknown;
   try {
     parsed = JSON.parse(decoder.decode(json));
@@ -278,8 +282,9 @@ function checkEntries(json: Uint8Array): { spa: boolean; files: CompactEntry[]; 
     seen.add(path);
     checked.push({ path, length, type: type ?? knownType(path) ?? UNKNOWN_TYPE, encoding: encoding ?? null, reuse: checkedReuse });
   }
-  if (checkedRules.rules === undefined) return { spa, files: checked };
-  return { spa, files: checked, rules: rules as SiteRules };
+  const headerRules = headerRulesOf(checkedRules.rules);
+  if (checkedRules.rules === undefined) return { spa, files: checked, headerRules };
+  return { spa, files: checked, rules: rules as SiteRules, headerRules };
 }
 
 function checkReuse(reuse: unknown): Reuse | null | "bad" {

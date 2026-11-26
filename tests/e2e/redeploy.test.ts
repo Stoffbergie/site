@@ -1,6 +1,6 @@
 import { strict as assert } from "node:assert";
 import { randomBytes } from "node:crypto";
-import { writeFileSync } from "node:fs";
+import { rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import { join } from "node:path";
 import { brotliCompressSync } from "node:zlib";
@@ -212,4 +212,144 @@ test("a deploy made of files from more than eight earlier deploys still deploys"
   }
   const { url } = await deploy(["--no-copy", folder(files)], { home });
   await expectServed(url, files);
+});
+
+test("a change to _redirects or _headers takes effect on the next deploy, and unchanged rule files are reused", async () => {
+  const proxy = await countingProxy();
+  try {
+    const home = newHome();
+    const files: Record<string, string | Buffer> = {
+      "index.html": "<h1>One</h1>",
+      "b.html": "<h1>B</h1>",
+      "c.html": "<h1>C</h1>",
+      "photo.jpg": randomBytes(30_000),
+      _redirects: `/a  /b  301\n${"# padding so the rule file is worth reusing\n".repeat(200)}`,
+      _headers: `/*\n  X-Version: one\n${"# padding so the rule file is worth reusing\n".repeat(200)}`
+    };
+    const root = folder(files);
+    const name = uniqueName("rules");
+    const run = async (): Promise<string> => {
+      const result = await runCli(["--no-copy", "-n", name, root], { home, env: { SITE_URL: proxy.url } });
+      assert.equal(result.code, 0, result.stderr);
+      return result.stdout.trim();
+    };
+    const site = await run();
+    assert.equal((await visit(site, "/a")).headers.location, "/b");
+    assert.equal((await visit(site, "/")).headers["x-version"], "one");
+
+    writeFileSync(join(root, "_redirects"), `/a  /c  301\n${"# padding so the rule file is worth reusing\n".repeat(200)}`);
+    await run();
+    assert.equal((await visit(site, "/a")).headers.location, "/c", "a changed _redirects takes effect");
+    assert.equal((await visit(site, "/")).headers["x-version"], "one");
+
+    const before = proxy.sent();
+    writeFileSync(join(root, "index.html"), "<h1>Two</h1>");
+    await run();
+    const sent = proxy.sent() - before;
+    assert.ok(sent < 4_000, `the unchanged rule files and photo are reused: ${sent} bytes sent`);
+    assert.equal((await visit(site, "/a")).headers.location, "/c", "rules still apply when their files are reused");
+    const page = await visit(site, "/");
+    assert.equal(page.text, "<h1>Two</h1>");
+    assert.equal(page.headers["x-version"], "one");
+
+    writeFileSync(join(root, "_headers"), `/*\n  X-Version: two\n${"# padding so the rule file is worth reusing\n".repeat(200)}`);
+    await run();
+    assert.equal((await visit(site, "/")).headers["x-version"], "two", "a changed _headers takes effect");
+    assert.equal((await visit(site, "/_headers")).status, 404);
+    assert.equal((await visit(site, "/_redirects")).status, 404);
+  } finally {
+    proxy.close();
+  }
+});
+
+test("a reused file's validator changes with the site's header rules or its type, so new headers arrive with the body", async () => {
+  const home = newHome();
+  const photo = randomBytes(30_000);
+  const root = folder({ "index.html": "<h1>One</h1>", "photo.jpg": photo, _headers: "/photo.jpg\n  X-Frame-Options: SAMEORIGIN\n" });
+  const name = uniqueName("tagged");
+  const site = (await deploy(["--no-copy", "-n", name, root], { home })).url;
+  const first = await visit(site, "/photo.jpg");
+  assert.equal(first.headers["x-frame-options"], "SAMEORIGIN");
+  const etag = first.headers.etag ?? "";
+
+  writeFileSync(join(root, "index.html"), "<h1>Two</h1>");
+  await deploy(["--no-copy", "-n", name, root], { home });
+  const unchanged = await visit(site, "/photo.jpg", { headers: { "if-none-match": etag } });
+  assert.equal(unchanged.status, 304, "the same rules keep the reused file's validator");
+  assert.equal(unchanged.headers["x-frame-options"], "SAMEORIGIN", "a 304 carries the header rules");
+
+  writeFileSync(join(root, "_headers"), "/photo.jpg\n  X-Frame-Options: DENY\n");
+  await deploy(["--no-copy", "-n", name, root], { home });
+  const changed = await visit(site, "/photo.jpg", { headers: { "if-none-match": etag } });
+  assert.equal(changed.status, 200, "changed rules change the validator");
+  assert.notEqual(changed.headers.etag, etag);
+  assert.equal(changed.headers["x-frame-options"], "DENY");
+  assert.ok(changed.body.equals(photo));
+
+  const text = "plain words that later become a page";
+  const typed = folder({ "photo.jpg": photo, notes: text });
+  const typedName = uniqueName("typed");
+  const typedSite = (await deploy(["--no-copy", "-n", typedName, typed], { home })).url;
+  const asText = await visit(typedSite, "/notes");
+  assert.equal(asText.headers["content-type"], "text/plain; charset=utf-8");
+  rmSync(join(typed, "notes"));
+  writeFileSync(join(typed, "notes.html"), text);
+  await deploy(["--no-copy", "-n", typedName, typed], { home });
+  const asPage = await visit(typedSite, "/notes", { headers: { "if-none-match": asText.headers.etag ?? "" } });
+  assert.equal(asPage.status, 200, "the same bytes under another type get a new validator");
+  assert.equal(asPage.headers["content-type"], "text/html; charset=utf-8");
+  assert.equal(asPage.text, text);
+});
+
+test("rewrites, folded names, 404 pages and app fallbacks serve the right bytes and validator, from memory too, with their header rules", async () => {
+  const files: Record<string, string> = {
+    "index.html": "<h1>Home</h1>",
+    "target.html": "<h1>Target</h1>",
+    "About.html": "<h1>About</h1>",
+    "404.html": "<h1>Lost</h1>",
+    _redirects: "/rewritten  /target.html  200\n",
+    _headers: "/rewritten\n  X-Path: rewritten\n/about\n  X-Path: about\n/*\n  X-Site: yes\n/target.html\n  Cache-Control: max-age=60\n"
+  };
+  const root = folder(files);
+  const name = uniqueName("routes");
+  const home = newHome();
+  const named = (await deploy(["--no-copy", "-n", name, root], { home })).url;
+  const { label } = await deploy(["--no-copy", root], { home });
+  const byId = idUrl(label);
+
+  for (const site of [named, byId]) {
+    const target = await visit(site, "/target.html");
+    for (let round = 0; round < 2; round += 1) {
+      const rewritten = await visit(site, "/rewritten");
+      assert.equal(rewritten.text, files["target.html"]);
+      assert.equal(rewritten.headers.etag, target.headers.etag, "a rewrite carries its target's validator");
+      assert.equal(rewritten.headers["x-path"], "rewritten");
+      assert.equal(rewritten.headers["x-site"], "yes");
+      const revalidated = await visit(site, "/rewritten", { headers: { "if-none-match": target.headers.etag ?? "" } });
+      assert.equal(revalidated.status, 304);
+      assert.equal(revalidated.headers["x-path"], "rewritten", "a 304 carries the rules of the requested path");
+
+      const folded = await visit(site, "/about");
+      assert.equal(folded.text, files["About.html"]);
+      assert.equal(folded.headers.etag, (await visit(site, "/About.html")).headers.etag);
+      assert.equal(folded.headers["x-path"], "about");
+
+      const lost = await visit(site, "/nowhere", { headers: { "if-none-match": (await visit(site, "/404.html")).headers.etag ?? "" } });
+      assert.equal(lost.status, 404, "a 404 page is never a 304");
+      assert.equal(lost.text, files["404.html"]);
+      assert.equal(lost.headers["x-site"], "yes");
+    }
+  }
+  assert.equal((await visit(byId, "/target.html")).headers["cache-control"], "max-age=60, no-transform", "a site's Cache-Control holds on id hosts");
+  assert.equal((await visit(named, "/target.html")).headers["cache-control"], "no-cache, no-transform", "named hosts keep revalidating");
+
+  const app: Record<string, string> = { "index.html": '<div id="app"></div><script src="/app.js"></script>', "app.js": "document.title = 'app';", _headers: "/users/*\n  X-Route: user\n" };
+  const appSite = (await deploy(["--no-copy", folder(app)], { home })).url;
+  const shell = await visit(appSite, "/index.html");
+  for (let round = 0; round < 2; round += 1) {
+    const route = await visit(appSite, "/users/42");
+    assert.equal(route.text, app["index.html"]);
+    assert.equal(route.headers.etag, shell.headers.etag, "the app fallback carries the shell's validator");
+    assert.equal(route.headers["x-route"], "user");
+  }
 });
