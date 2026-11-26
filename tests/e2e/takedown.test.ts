@@ -1,5 +1,6 @@
 import { strict as assert } from "node:assert";
 import { createHash } from "node:crypto";
+import { request as httpRequest } from "node:http";
 import { test } from "vite-plus/test";
 import { adminToken, apiKeyOf, baseUrl, deploy, folder, idUrl, newHome, runCli, uniqueName, upload, visit } from "../helpers/site";
 
@@ -12,6 +13,22 @@ function ownerOf(key: string): string {
 async function deployIds(key: string): Promise<string[]> {
   const listed = await fetch(`${baseUrl}/list`, { headers: { authorization: `Bearer ${key}` } });
   return ((await listed.json()) as { deploys: { id: string }[] }).deploys.map((deployed) => deployed.id);
+}
+
+function uploadBlockedMidway(key: string, owner: string): Promise<{ status: number; body: string }> {
+  const first = Buffer.from("<h1>started before the block</h1>");
+  const rest = Buffer.alloc(200_000, 0x20);
+  return new Promise((resolve, reject) => {
+    const headers = { authorization: `Bearer ${key}`, "content-length": String(first.byteLength + rest.byteLength) };
+    const request = httpRequest({ host: "127.0.0.1", port: new URL(baseUrl).port, path: "/page.html", method: "PUT", headers }, (response) => {
+      const chunks: Buffer[] = [];
+      response.on("data", (chunk: Buffer) => chunks.push(chunk));
+      response.on("end", () => resolve({ status: response.statusCode ?? 0, body: Buffer.concat(chunks).toString("utf8") }));
+    });
+    request.on("error", reject);
+    request.write(first);
+    setTimeout(() => void answer(`/blocked/${owner}`, "PUT", admin).then(() => request.end(rest)), 1000);
+  });
 }
 
 async function answer(path: string, method: string, headers: Record<string, string> = {}): Promise<{ status: number; body: string }> {
@@ -78,6 +95,11 @@ test("a blocked key is refused on every API call until it is unblocked, and its 
   assert.equal((await upload("/page.html", "<h1>someone else</h1>", { authorization: `Bearer ${await apiKeyOf(newHome())}` })).status, 201);
 
   assert.deepEqual(await answer(`/blocked/${owner}`, "DELETE", admin), { status: 200, body: "unblocked\n" });
+  const before = await deployIds(key);
+  const midway = await uploadBlockedMidway(key, owner);
+  assert.equal(midway.status, 403, midway.body);
+  assert.deepEqual(await answer(`/blocked/${owner}`, "DELETE", admin), { status: 200, body: "unblocked\n" });
+  assert.deepEqual(await deployIds(key), before);
   assert.equal((await runCli(["--no-copy", "-n", name, site], { home })).code, 0);
 });
 

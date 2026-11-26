@@ -158,7 +158,7 @@ app.delete("/deploys/:id", async (c) => {
 });
 
 app.get("/deploys/:id", async (c) => {
-  if ((await identify(c)).kind !== "admin") return c.notFound();
+  if (!isAdmin(c)) return c.notFound();
   const id = c.req.param("id");
   const object = isDeployId(id) ? await c.env.SITES.head(deployKey(id)) : null;
   if (!object) return text(`No deploy ${id}.\n`, 404);
@@ -173,7 +173,7 @@ app.get("/deploys/:id", async (c) => {
 });
 
 app.get("/names/:name", async (c) => {
-  if ((await identify(c)).kind !== "admin") return c.notFound();
+  if (!isAdmin(c)) return c.notFound();
   const name = c.req.param("name");
   const record = await readPointerRecord(c.env, name);
   if (!record) return text(`No name ${name}.\n`, 404);
@@ -181,7 +181,7 @@ app.get("/names/:name", async (c) => {
 });
 
 app.on(["PUT", "DELETE"], "/blocked/:owner", async (c) => {
-  if ((await identify(c)).kind !== "admin") return c.notFound();
+  if (!isAdmin(c)) return c.notFound();
   const owner = c.req.param("owner");
   if (!OWNER_PATTERN.test(owner)) return badOwner();
   if (c.req.method === "PUT") {
@@ -193,7 +193,7 @@ app.on(["PUT", "DELETE"], "/blocked/:owner", async (c) => {
 });
 
 app.delete("/owners/:owner", async (c) => {
-  if ((await identify(c)).kind !== "admin") return c.notFound();
+  if (!isAdmin(c)) return c.notFound();
   const owner = c.req.param("owner");
   if (!OWNER_PATTERN.test(owner)) return badOwner();
   const names = await ownedNames(c.env, owner);
@@ -245,6 +245,10 @@ async function deploy(c: AppContext, filename: string): Promise<Response> {
   if ("problem" in result && result.status === 429) return tooMany();
   if ("problem" in result) return text(`${result.problem}\n`, result.status);
   const stored = result.stored;
+  if (owner !== null && (await c.env.SITES.head(blockedKey(owner)))) {
+    await removeDeploy(c.env, stored.id, owner);
+    return needsKey({ kind: "blocked" });
+  }
 
   if (name !== undefined && claim !== null && owner !== null) {
     if (stored.encrypted !== null && stored.encrypted.name !== name) {
@@ -332,13 +336,19 @@ async function identify(c: AppContext): Promise<Caller> {
   const authorization = c.req.header("authorization");
   if (!authorization) return { kind: "anonymous" };
   if (!authorization.startsWith("Bearer ")) return { kind: "invalid" };
+  if (isAdmin(c)) return { kind: "admin" };
   const presented = authorization.slice(7).trim();
-  const token = c.env.SITE_TOKEN;
-  if (token && same(presented, token)) return { kind: "admin" };
   if (!isSiteKey(presented)) return { kind: "invalid" };
   const owner = await sha256(presented);
   if (await c.env.SITES.head(blockedKey(owner))) return { kind: "blocked" };
   return { kind: "key", owner };
+}
+
+function isAdmin(c: AppContext): boolean {
+  const authorization = c.req.header("authorization");
+  const token = c.env.SITE_TOKEN;
+  if (!token || !authorization?.startsWith("Bearer ")) return false;
+  return same(authorization.slice(7).trim(), token);
 }
 
 function needsKey(caller: Caller): Response {
