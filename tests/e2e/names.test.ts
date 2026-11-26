@@ -103,7 +103,14 @@ test.each([
   ["www", /reserved/],
   ["my-paypal-help", /not allowed/],
   ["bank", /not allowed/],
-  ["secure-signin", /not allowed/]
+  ["secure-signin", /not allowed/],
+  ["install", /reserved/],
+  ["no-reply", /reserved/],
+  ["stoffberg", /reserved/],
+  ["paypa1", /not allowed/],
+  ["g00gle", /not allowed/],
+  ["pay-pal", /not allowed/],
+  ["my-s1gn-1n", /not allowed/]
 ])("the name %s is refused before anything uploads", async (name, message) => {
   const home = newHome();
   const result = await runCli(["--no-copy", "-n", name, folder({ "index.html": "x" })], { home });
@@ -111,6 +118,24 @@ test.each([
   assert.match(result.stderr, message);
   const listed = await runCli(["ls"], { home });
   assert.match(listed.stderr, /No deploys yet/);
+});
+
+test("site point refuses to claim an official-looking or lookalike name and still claims an ordinary one", async () => {
+  const home = newHome();
+  const { run } = await deploy(["--no-copy", folder({ "index.html": "x" })], { home });
+  const id = /https:\/\/([a-z0-9]{8})\./.exec(run.stdout)?.[1] as string;
+  for (const [name, message] of [
+    ["download", /reserved/],
+    ["c01nbase-help", /not allowed/]
+  ] as const) {
+    const refused = await runCli(["point", name, id], { home });
+    assert.equal(refused.code, 1);
+    assert.match(refused.stderr, message);
+  }
+  const ordinary = uniqueName("installer");
+  const pointed = await runCli(["point", ordinary, id], { home });
+  assert.equal(pointed.code, 0, pointed.stderr);
+  assert.equal((await visit(`https://${ordinary}.site.localhost`)).text, "x");
 });
 
 test("a key holds at most 20 names", async () => {

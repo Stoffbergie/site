@@ -35,6 +35,42 @@ const blocked = [
   "support"
 ];
 
+const reservedForClaims = new Set([
+  "install",
+  "download",
+  "cli",
+  "auth",
+  "sso",
+  "billing",
+  "dashboard",
+  "cdn",
+  "static",
+  "assets",
+  "update",
+  "updates",
+  "releases",
+  "get",
+  "security",
+  "blog",
+  "shop",
+  "store",
+  "stoff",
+  "stoffberg",
+  "keep",
+  "hook",
+  "beam",
+  "reach",
+  "relay",
+  "webmail",
+  "email",
+  "postmaster",
+  "hostmaster",
+  "webmaster",
+  "noreply",
+  "no-reply"
+]);
+const lettersADigitPassesFor: Record<string, string> = { "0": "o", "1": "li", "3": "e", "4": "a", "5": "s", "7": "t" };
+
 export const DEPLOY_ID_LENGTH = 8;
 
 export function randomId(): string {
@@ -65,6 +101,34 @@ export function nameProblem(name: string): string | null {
   if (reserved.has(name)) return "That name is reserved; pick another.";
   if (blocked.some((word) => name.includes(word))) return "That name is not allowed; pick another.";
   return null;
+}
+
+export function newNameProblem(name: string): string | null {
+  if (reservedForClaims.has(name)) return "That name is reserved; pick another.";
+  const spelling = name.replaceAll("-", "");
+  if (blocked.some((word) => readsAsContaining(spelling, word.replaceAll("-", "")))) return "That name is not allowed; pick another.";
+  return null;
+}
+
+function readsAsContaining(spelling: string, word: string): boolean {
+  for (let start = 0; start + word.length <= spelling.length; start += 1) {
+    if (readsAsAt(spelling, start, word)) return true;
+  }
+  return false;
+}
+
+function readsAsAt(spelling: string, start: number, word: string): boolean {
+  for (let offset = 0; offset < word.length; offset += 1) {
+    if (!readsAs(spelling[start + offset], word[offset])) return false;
+  }
+  return true;
+}
+
+function readsAs(character: string, letter: string): boolean {
+  if (character === letter) return true;
+  const letters = lettersADigitPassesFor[character];
+  if (letters === undefined) return false;
+  return letters.includes(letter);
 }
 
 export function siteLabel(hostname: string, domain: string): string | null {
