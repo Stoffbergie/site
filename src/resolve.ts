@@ -12,15 +12,16 @@ export function resolve(listing: Listing, pathname: string): Target {
 
   const candidates: string[] = [];
   if (relative === "" || relative.endsWith("/")) {
-    candidates.push(`${relative}index.html`);
+    candidates.push(`${relative}index.html`, `${relative}index.htm`);
   } else {
-    candidates.push(relative, `${relative}.html`);
+    candidates.push(relative, `${relative}.html`, `${relative}.htm`);
   }
   for (const candidate of candidates) {
     const number = byPath.get(candidate);
     if (number !== undefined) return { kind: "file", number, status: 200 };
   }
-  if (relative !== "" && byPath.has(`${relative}/index.html`)) return { kind: "folder" };
+  const isFolder = byPath.has(`${relative}/index.html`) || byPath.has(`${relative}/index.htm`);
+  if (relative !== "" && isFolder) return { kind: "folder" };
 
   if (relative === "") {
     if (files.length === 1) return { kind: "file", number: 0, status: 200 };
