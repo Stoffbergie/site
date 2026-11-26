@@ -1,6 +1,6 @@
 import { Hono, type Context } from "hono";
 import type { Env } from "./env";
-import { isDeployId, isSiteKey, nameProblem } from "./names";
+import { isDeployId, isSiteKey, nameProblem, newNameProblem } from "./names";
 import { homePage, homeText, notFoundPage } from "./pages";
 import {
   deployKey,
@@ -222,6 +222,8 @@ async function prepareClaim(c: AppContext, name: string, owner: string): Promise
     if (record.pointer.owner !== owner) return text("That name is taken; pick another.\n", 409);
     return { etag: record.etag, pointedId: record.pointer.id };
   }
+  const newProblem = newNameProblem(name);
+  if (newProblem !== null) return text(`${newProblem}\n`, 400);
   if (record && record.releasedBy !== owner) return text("That name is taken; pick another.\n", 409);
   const names = await ownedNames(c.env, owner);
   if (names.length >= MAX_NAMES) return text(`A key can hold ${MAX_NAMES} names; release one with site rm <name> first.\n`, 403);
