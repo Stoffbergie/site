@@ -68,16 +68,16 @@
     "stdout": "",
     "stderr": "error: unrecognized subcommand '-x'\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nFor more information, try '--help'.\n"
   },
-  { "args": ["-V"], "code": 0, "stdout": "site 0.4.1\n", "stderr": "" },
-  { "args": ["--version"], "code": 0, "stdout": "site 0.4.1\n", "stderr": "" },
-  { "args": ["-Vh"], "code": 0, "stdout": "site 0.4.1\n", "stderr": "" },
+  { "args": ["-V"], "code": 0, "stdout": "site 0.5.0\n", "stderr": "" },
+  { "args": ["--version"], "code": 0, "stdout": "site 0.5.0\n", "stderr": "" },
+  { "args": ["-Vh"], "code": 0, "stdout": "site 0.5.0\n", "stderr": "" },
   {
     "args": ["-hV"],
     "code": 0,
     "stdout": "Static sites, live in one command\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nCommands:\n  ls     List your names and deploys\n  point  Point a name at one of your deploys\n  rm     Delete a deploy or release a name\n  key    Print your key, or save a key from another machine\n  help   Print this message or the help of the given subcommand(s)\n\nArguments:\n  [PATHS]...  A folder, files, or - for stdin\n\nOptions:\n  -n, --name <NAME>  Point this name at the deploy, like todo for todo.site.stoff.dev\n  -e, --encrypt      Encrypt the site on this machine; only the printed link, with its key after #, opens it\n      --spa          Serve index.html for unknown paths without a file extension\n      --no-copy      Leave the clipboard unchanged after deploying\n      --new-link     With -e -n, replace the name's link; the old link stops opening it\n  -h, --help         Print help\n  -V, --version      Print version\n\nExamples:\n  site dist                      Deploy a folder and print its URL\n  site dist -n todo              Also point todo.site.stoff.dev at it\n  site dist -e                   Encrypt it; only the full link opens it\n  site index.html style.css      Deploy loose files at the root\n  cat page.html | site -         Deploy stdin as index.html\n  site dist --spa                Serve index.html for client-side routes\n  site ls                        List your names and deploys\n  site point todo k3m9xq2a       Point a name at an earlier deploy\n  site rm k3m9xq2a               Delete a deploy (or release a name)\n  site key                       Print your key, to use on another machine\n\nSet SITE_KEY to use a key without saving it, and SITE_URL to use another server.\n",
     "stderr": ""
   },
-  { "args": ["-V", "-h"], "code": 0, "stdout": "site 0.4.1\n", "stderr": "" },
+  { "args": ["-V", "-h"], "code": 0, "stdout": "site 0.5.0\n", "stderr": "" },
   {
     "args": ["--version=x"],
     "code": 2,
@@ -102,7 +102,7 @@
     "stdout": "Static sites, live in one command\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nCommands:\n  ls     List your names and deploys\n  point  Point a name at one of your deploys\n  rm     Delete a deploy or release a name\n  key    Print your key, or save a key from another machine\n  help   Print this message or the help of the given subcommand(s)\n\nArguments:\n  [PATHS]...  A folder, files, or - for stdin\n\nOptions:\n  -n, --name <NAME>  Point this name at the deploy, like todo for todo.site.stoff.dev\n  -e, --encrypt      Encrypt the site on this machine; only the printed link, with its key after #, opens it\n      --spa          Serve index.html for unknown paths without a file extension\n      --no-copy      Leave the clipboard unchanged after deploying\n      --new-link     With -e -n, replace the name's link; the old link stops opening it\n  -h, --help         Print help\n  -V, --version      Print version\n\nExamples:\n  site dist                      Deploy a folder and print its URL\n  site dist -n todo              Also point todo.site.stoff.dev at it\n  site dist -e                   Encrypt it; only the full link opens it\n  site index.html style.css      Deploy loose files at the root\n  cat page.html | site -         Deploy stdin as index.html\n  site dist --spa                Serve index.html for client-side routes\n  site ls                        List your names and deploys\n  site point todo k3m9xq2a       Point a name at an earlier deploy\n  site rm k3m9xq2a               Delete a deploy (or release a name)\n  site key                       Print your key, to use on another machine\n\nSet SITE_KEY to use a key without saving it, and SITE_URL to use another server.\n",
     "stderr": ""
   },
-  { "args": ["nope", "--version"], "code": 0, "stdout": "site 0.4.1\n", "stderr": "" },
+  { "args": ["nope", "--version"], "code": 0, "stdout": "site 0.5.0\n", "stderr": "" },
   { "args": ["-n"], "code": 2, "stdout": "", "stderr": "error: a value is required for '--name <NAME>' but none was supplied\n\nFor more information, try '--help'.\n" },
   { "args": ["--name"], "code": 2, "stdout": "", "stderr": "error: a value is required for '--name <NAME>' but none was supplied\n\nFor more information, try '--help'.\n" },
   {
@@ -223,7 +223,7 @@
     "stdout": "Static sites, live in one command\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nCommands:\n  ls     List your names and deploys\n  point  Point a name at one of your deploys\n  rm     Delete a deploy or release a name\n  key    Print your key, or save a key from another machine\n  help   Print this message or the help of the given subcommand(s)\n\nArguments:\n  [PATHS]...  A folder, files, or - for stdin\n\nOptions:\n  -n, --name <NAME>  Point this name at the deploy, like todo for todo.site.stoff.dev\n  -e, --encrypt      Encrypt the site on this machine; only the printed link, with its key after #, opens it\n      --spa          Serve index.html for unknown paths without a file extension\n      --no-copy      Leave the clipboard unchanged after deploying\n      --new-link     With -e -n, replace the name's link; the old link stops opening it\n  -h, --help         Print help\n  -V, --version      Print version\n\nExamples:\n  site dist                      Deploy a folder and print its URL\n  site dist -n todo              Also point todo.site.stoff.dev at it\n  site dist -e                   Encrypt it; only the full link opens it\n  site index.html style.css      Deploy loose files at the root\n  cat page.html | site -         Deploy stdin as index.html\n  site dist --spa                Serve index.html for client-side routes\n  site ls                        List your names and deploys\n  site point todo k3m9xq2a       Point a name at an earlier deploy\n  site rm k3m9xq2a               Delete a deploy (or release a name)\n  site key                       Print your key, to use on another machine\n\nSet SITE_KEY to use a key without saving it, and SITE_URL to use another server.\n",
     "stderr": ""
   },
-  { "args": ["-eV"], "code": 0, "stdout": "site 0.4.1\n", "stderr": "" },
+  { "args": ["-eV"], "code": 0, "stdout": "site 0.5.0\n", "stderr": "" },
   { "args": ["-e", "nope"], "code": 1, "stdout": "", "stderr": "site: could not find nope: No such file or directory (os error 2)\n" },
   {
     "args": ["--sap"],
@@ -443,7 +443,7 @@
     "stdout": "Static sites, live in one command\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nCommands:\n  ls     List your names and deploys\n  point  Point a name at one of your deploys\n  rm     Delete a deploy or release a name\n  key    Print your key, or save a key from another machine\n  help   Print this message or the help of the given subcommand(s)\n\nArguments:\n  [PATHS]...  A folder, files, or - for stdin\n\nOptions:\n  -n, --name <NAME>  Point this name at the deploy, like todo for todo.site.stoff.dev\n  -e, --encrypt      Encrypt the site on this machine; only the printed link, with its key after #, opens it\n      --spa          Serve index.html for unknown paths without a file extension\n      --no-copy      Leave the clipboard unchanged after deploying\n      --new-link     With -e -n, replace the name's link; the old link stops opening it\n  -h, --help         Print help\n  -V, --version      Print version\n\nExamples:\n  site dist                      Deploy a folder and print its URL\n  site dist -n todo              Also point todo.site.stoff.dev at it\n  site dist -e                   Encrypt it; only the full link opens it\n  site index.html style.css      Deploy loose files at the root\n  cat page.html | site -         Deploy stdin as index.html\n  site dist --spa                Serve index.html for client-side routes\n  site ls                        List your names and deploys\n  site point todo k3m9xq2a       Point a name at an earlier deploy\n  site rm k3m9xq2a               Delete a deploy (or release a name)\n  site key                       Print your key, to use on another machine\n\nSet SITE_KEY to use a key without saving it, and SITE_URL to use another server.\n",
     "stderr": ""
   },
-  { "args": ["--spa", "--version"], "code": 0, "stdout": "site 0.4.1\n", "stderr": "" },
+  { "args": ["--spa", "--version"], "code": 0, "stdout": "site 0.5.0\n", "stderr": "" },
   {
     "args": ["-h", "--sap"],
     "code": 0,
@@ -625,7 +625,7 @@
     "stdout": "Static sites, live in one command\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nCommands:\n  ls     List your names and deploys\n  point  Point a name at one of your deploys\n  rm     Delete a deploy or release a name\n  key    Print your key, or save a key from another machine\n  help   Print this message or the help of the given subcommand(s)\n\nArguments:\n  [PATHS]...  A folder, files, or - for stdin\n\nOptions:\n  -n, --name <NAME>  Point this name at the deploy, like todo for todo.site.stoff.dev\n  -e, --encrypt      Encrypt the site on this machine; only the printed link, with its key after #, opens it\n      --spa          Serve index.html for unknown paths without a file extension\n      --no-copy      Leave the clipboard unchanged after deploying\n      --new-link     With -e -n, replace the name's link; the old link stops opening it\n  -h, --help         Print help\n  -V, --version      Print version\n\nExamples:\n  site dist                      Deploy a folder and print its URL\n  site dist -n todo              Also point todo.site.stoff.dev at it\n  site dist -e                   Encrypt it; only the full link opens it\n  site index.html style.css      Deploy loose files at the root\n  cat page.html | site -         Deploy stdin as index.html\n  site dist --spa                Serve index.html for client-side routes\n  site ls                        List your names and deploys\n  site point todo k3m9xq2a       Point a name at an earlier deploy\n  site rm k3m9xq2a               Delete a deploy (or release a name)\n  site key                       Print your key, to use on another machine\n\nSet SITE_KEY to use a key without saving it, and SITE_URL to use another server.\n",
     "stderr": ""
   },
-  { "args": ["-V=x"], "code": 0, "stdout": "site 0.4.1\n", "stderr": "" },
+  { "args": ["-V=x"], "code": 0, "stdout": "site 0.5.0\n", "stderr": "" },
   { "args": ["-n-", "nope"], "code": 1, "stdout": "", "stderr": "site: could not find nope: No such file or directory (os error 2)\n" },
   { "args": ["-en=foo", "nope"], "code": 1, "stdout": "", "stderr": "site: could not find nope: No such file or directory (os error 2)\n" },
   {
@@ -647,7 +647,7 @@
     "stdout": "Static sites, live in one command\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nCommands:\n  ls     List your names and deploys\n  point  Point a name at one of your deploys\n  rm     Delete a deploy or release a name\n  key    Print your key, or save a key from another machine\n  help   Print this message or the help of the given subcommand(s)\n\nArguments:\n  [PATHS]...  A folder, files, or - for stdin\n\nOptions:\n  -n, --name <NAME>  Point this name at the deploy, like todo for todo.site.stoff.dev\n  -e, --encrypt      Encrypt the site on this machine; only the printed link, with its key after #, opens it\n      --spa          Serve index.html for unknown paths without a file extension\n      --no-copy      Leave the clipboard unchanged after deploying\n      --new-link     With -e -n, replace the name's link; the old link stops opening it\n  -h, --help         Print help\n  -V, --version      Print version\n\nExamples:\n  site dist                      Deploy a folder and print its URL\n  site dist -n todo              Also point todo.site.stoff.dev at it\n  site dist -e                   Encrypt it; only the full link opens it\n  site index.html style.css      Deploy loose files at the root\n  cat page.html | site -         Deploy stdin as index.html\n  site dist --spa                Serve index.html for client-side routes\n  site ls                        List your names and deploys\n  site point todo k3m9xq2a       Point a name at an earlier deploy\n  site rm k3m9xq2a               Delete a deploy (or release a name)\n  site key                       Print your key, to use on another machine\n\nSet SITE_KEY to use a key without saving it, and SITE_URL to use another server.\n",
     "stderr": ""
   },
-  { "args": ["-Vx"], "code": 0, "stdout": "site 0.4.1\n", "stderr": "" },
+  { "args": ["-Vx"], "code": 0, "stdout": "site 0.5.0\n", "stderr": "" },
   {
     "args": ["-xV"],
     "code": 2,
@@ -787,8 +787,8 @@
   },
   { "args": ["ls", "--version"], "code": 2, "stdout": "", "stderr": "error: unexpected argument '--version' found\n\nUsage: site ls\n\nFor more information, try '--help'.\n" },
   { "args": ["ls", "-V"], "code": 2, "stdout": "", "stderr": "error: unexpected argument '-V' found\n\nUsage: site ls\n\nFor more information, try '--help'.\n" },
-  { "args": ["--version", "ls"], "code": 0, "stdout": "site 0.4.1\n", "stderr": "" },
-  { "args": ["-V", "ls"], "code": 0, "stdout": "site 0.4.1\n", "stderr": "" },
+  { "args": ["--version", "ls"], "code": 0, "stdout": "site 0.5.0\n", "stderr": "" },
+  { "args": ["-V", "ls"], "code": 0, "stdout": "site 0.5.0\n", "stderr": "" },
   {
     "args": ["--name", "x", "--name=y"],
     "code": 2,
