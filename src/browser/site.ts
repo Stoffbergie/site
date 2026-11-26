@@ -9,7 +9,8 @@ const STORE = "keys";
 const KEY_ENTRY = "link";
 
 export type SealedFile = ListedFile & { gzip: boolean };
-export type Site = Listing & { id: string; key: string; files: SealedFile[]; contentKey: CryptoKey; rules: unknown };
+export type LinkKey = { base: CryptoKey; fingerprint: string };
+export type Site = Listing & { id: string; key: LinkKey; files: SealedFile[]; contentKey: CryptoKey; rules: unknown };
 export type Meta = { id: string; encrypted: { contentSalt: string }; entries: number[] };
 
 export class WrongKey extends Error {}
@@ -22,10 +23,16 @@ export async function fetchMeta(): Promise<Meta> {
   return (await response.json()) as Meta;
 }
 
-export async function openDeploy(meta: Meta, key: string): Promise<Site> {
-  const linkKey = fromBase64Url(key);
-  if (linkKey === null || linkKey.byteLength !== 32) throw new WrongKey();
-  const contentKey = await deriveContentKey(linkKey, fromBase64Url(meta.encrypted.contentSalt) ?? new Uint8Array());
+export async function importLinkKey(text: string): Promise<LinkKey | null> {
+  const bytes = fromBase64Url(text);
+  if (bytes === null || bytes.byteLength !== 32) return null;
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  const base = await crypto.subtle.importKey("raw", bytes, "HKDF", false, ["deriveKey"]);
+  return { base, fingerprint: toBase64Url(new Uint8Array(digest)) };
+}
+
+export async function openDeploy(meta: Meta, key: LinkKey): Promise<Site> {
+  const contentKey = await deriveContentKey(key.base, fromBase64Url(meta.encrypted.contentSalt) ?? new Uint8Array());
   const indexLength = meta.entries[0];
   const sealedIndex = new Uint8Array(await (await fetchEntry(meta.id, 0, null)).arrayBuffer());
   if (sealedIndex.byteLength !== indexLength) throw new Error("The site changed while opening it.");
@@ -39,8 +46,7 @@ export async function openDeploy(meta: Meta, key: string): Promise<Site> {
   return { id: meta.id, key, spa: index.spa, files: index.files, byPath: byPathOf(index.files), contentKey, rules: index.rules };
 }
 
-async function deriveContentKey(linkKey: Uint8Array<ArrayBuffer>, salt: Uint8Array<ArrayBuffer>): Promise<CryptoKey> {
-  const base = await crypto.subtle.importKey("raw", linkKey, "HKDF", false, ["deriveKey"]);
+async function deriveContentKey(base: CryptoKey, salt: Uint8Array<ArrayBuffer>): Promise<CryptoKey> {
   return crypto.subtle.deriveKey({ name: "HKDF", hash: "SHA-256", salt, info: CONTENT_INFO }, base, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
 }
 
@@ -98,13 +104,37 @@ export function fromBase64Url(text: string): Uint8Array<ArrayBuffer> | null {
   }
 }
 
-export async function readKey(): Promise<string | null> {
-  const value = await withStore("readonly", (store) => store.get(KEY_ENTRY));
-  if (typeof value === "string") return value;
-  return null;
+function toBase64Url(bytes: Uint8Array): string {
+  const binary = String.fromCharCode(...bytes);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-export async function saveKey(key: string): Promise<void> {
+function isLinkKey(value: unknown): value is LinkKey {
+  if (typeof value !== "object" || value === null) return false;
+  const entry = value as Partial<LinkKey>;
+  return entry.base instanceof CryptoKey && typeof entry.fingerprint === "string";
+}
+
+export async function readKey(): Promise<LinkKey | null> {
+  const value = await withStore("readonly", (store) => store.get(KEY_ENTRY));
+  if (isLinkKey(value)) return value;
+  if (typeof value !== "string") return null;
+  const key = await importLinkKey(value);
+  if (key !== null) await replaceKeyText(value, key);
+  return key;
+}
+
+async function replaceKeyText(text: string, key: LinkKey): Promise<void> {
+  await withStore("readwrite", (store) => {
+    const reading = store.get(KEY_ENTRY);
+    reading.addEventListener("success", () => {
+      if (reading.result === text) store.put(key, KEY_ENTRY);
+    });
+    return reading;
+  });
+}
+
+export async function saveKey(key: LinkKey): Promise<void> {
   await withStore("readwrite", (store) => store.put(key, KEY_ENTRY));
 }
 
@@ -116,9 +146,11 @@ async function withStore(mode: IDBTransactionMode, action: (store: IDBObjectStor
   const database = await openDatabase();
   try {
     return await new Promise((resolve, reject) => {
-      const request = action(database.transaction(STORE, mode).objectStore(STORE));
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
+      const transaction = database.transaction(STORE, mode);
+      const request = action(transaction.objectStore(STORE));
+      transaction.oncomplete = () => resolve(request.result);
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
     });
   } finally {
     database.close();
