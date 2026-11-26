@@ -1,4 +1,5 @@
 use crate::crypto::{self, LinkHint, LinkKey, Sealer};
+use crate::dotfiles::{self, DotName};
 use anyhow::{Context, Result, bail};
 use flate2::Compression;
 use flate2::write::GzEncoder;
@@ -73,6 +74,9 @@ pub struct Pack {
 impl Pack {
     pub fn collect(arguments: &[String], spa: bool, link_key: Option<&LinkKey>) -> Result<Pack> {
         let sources = sources(arguments)?;
+        if link_key.is_some() {
+            dotfiles::note_private_well_known(sources.iter().map(|(path, _)| path.as_str()));
+        }
         if sources.len() > MAX_FILES {
             bail!(
                 "that is {} files; a deploy holds at most {MAX_FILES}",
@@ -213,7 +217,9 @@ fn sources(arguments: &[String]) -> Result<Vec<(String, Source)>> {
             .with_context(|| format!("could not find {}", root.display()))?;
         if metadata.is_dir() {
             let mut found = Vec::new();
-            walk(&root, "", &mut found)?;
+            let mut left_out = Vec::new();
+            walk(&root, "", &mut found, &mut left_out)?;
+            dotfiles::note_left_out(&left_out);
             if found.is_empty() {
                 bail!("{} has nothing to deploy", root.display());
             }
@@ -223,6 +229,7 @@ fn sources(arguments: &[String]) -> Result<Vec<(String, Source)>> {
     }
 
     let mut loose: Vec<(String, Source)> = Vec::new();
+    let mut left_out = Vec::new();
     for argument in arguments {
         let path = PathBuf::from(argument);
         let metadata = std::fs::metadata(&path)
@@ -235,15 +242,32 @@ fn sources(arguments: &[String]) -> Result<Vec<(String, Source)>> {
             .and_then(|name| name.to_str())
             .with_context(|| format!("{} has a name site cannot use", path.display()))?
             .to_string();
+        match dotfiles::classify(&name) {
+            DotName::Deploy => {}
+            DotName::SkipQuietly => continue,
+            DotName::LeaveOut => {
+                left_out.push(name);
+                continue;
+            }
+        }
         if loose.iter().any(|(existing, _)| existing == &name) {
             bail!("two files are named {name}; each loose file lands at the root under its name");
         }
         loose.push((name, Source::Path(path)));
     }
+    dotfiles::note_left_out(&left_out);
+    if loose.is_empty() {
+        bail!("nothing to deploy: names starting with a dot stay private, except .well-known");
+    }
     Ok(loose)
 }
 
-fn walk(directory: &Path, prefix: &str, found: &mut Vec<(String, Source)>) -> Result<()> {
+fn walk(
+    directory: &Path,
+    prefix: &str,
+    found: &mut Vec<(String, Source)>,
+    left_out: &mut Vec<String>,
+) -> Result<()> {
     let entries = std::fs::read_dir(directory)
         .with_context(|| format!("could not read {}", directory.display()))?;
     for entry in entries {
@@ -251,19 +275,27 @@ fn walk(directory: &Path, prefix: &str, found: &mut Vec<(String, Source)>) -> Re
         let Some(name) = entry.file_name().to_str().map(str::to_string) else {
             bail!("{} has a name site cannot use", entry.path().display());
         };
-        if name.starts_with('.') || name == "node_modules" {
+        if name == "node_modules" {
             continue;
+        }
+        let relative = format!("{prefix}{name}");
+        match dotfiles::classify(&name) {
+            DotName::Deploy => {}
+            DotName::SkipQuietly => continue,
+            DotName::LeaveOut => {
+                left_out.push(relative);
+                continue;
+            }
         }
         let path = entry.path();
         if entry.file_type()?.is_symlink() {
             crate::output::note(&format!("Skipped {}: it is a symlink", path.display()));
             continue;
         }
-        let relative = format!("{prefix}{name}");
         let metadata = std::fs::metadata(&path)
             .with_context(|| format!("could not read {}", path.display()))?;
         if metadata.is_dir() {
-            walk(&path, &format!("{relative}/"), found)?;
+            walk(&path, &format!("{relative}/"), found, left_out)?;
         } else if metadata.is_file() {
             found.push((relative, Source::Path(path)));
         }
@@ -339,7 +371,13 @@ fn compressible(path: &str) -> bool {
 }
 
 fn content_type(path: &str) -> &'static str {
-    match extension(path).as_str() {
+    let extension = extension(path);
+    if extension.is_empty()
+        && let Some(content_type) = dotfiles::well_known_type(path)
+    {
+        return content_type;
+    }
+    match extension.as_str() {
         "html" | "htm" => "text/html; charset=utf-8",
         "css" => "text/css; charset=utf-8",
         "js" | "mjs" => "text/javascript; charset=utf-8",
