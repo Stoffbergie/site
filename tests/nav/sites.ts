@@ -322,8 +322,15 @@ const caseFolder: Files = {
   "404.html": page("case-404")
 };
 
+const xhtmlPage: Files = {
+  "index.html": page("xhtml-home", "", `<script src="app.js"></script>`),
+  "guide.xhtml": `<?xml version="1.0" encoding="utf-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><meta name="page" content="xhtml-guide"/><title>guide</title></head><body><h1>guide</h1></body></html>`,
+  "app.js": "window.app = true;"
+};
+
 export const sites = {
   caseFolder,
+  xhtmlPage,
   noReferrer,
   viteRelative,
   flat,

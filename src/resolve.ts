@@ -157,5 +157,5 @@ function isSinglePageApp(files: ListedFile[]): boolean {
 }
 
 function isHtml(file: ListedFile): boolean {
-  return file.type.startsWith("text/html");
+  return file.type.startsWith("text/html") || file.type.startsWith("application/xhtml+xml");
 }

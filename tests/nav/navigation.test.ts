@@ -882,6 +882,13 @@ add("caseFolder", "a first segment that names a folder in another letter case is
   assert.equal(response?.status(), 404);
   await t.expect("case-404");
 });
+add("xhtmlPage", "an XHTML page counts as a second page, so missing routes are 404s", async (t) => {
+  await warm(t, "/", "xhtml-home");
+  await t.goto("/guide.xhtml");
+  await t.expect("xhtml-guide");
+  const response = await t.goto("/nope");
+  assert.equal(response?.status(), 404);
+});
 add("plain", "a multi-page site without 404.html still has real 404s", async (t) => {
   await warm(t, "/", "plain-home");
   const response = await t.goto("/nope");
