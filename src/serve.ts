@@ -1,5 +1,6 @@
 import bootSource from "virtual:browser/boot";
 import serviceWorkerSource from "virtual:browser/service-worker";
+import { READ_METHODS } from "./cors";
 import type { Env } from "./env";
 import { isDeployId, nameProblem } from "./names";
 import type { PackFile } from "./pack";
@@ -14,7 +15,7 @@ const REVALIDATE = "no-cache, no-transform";
 
 export async function serveSite(request: Request, env: Env, ctx: ExecutionContext, label: string): Promise<Response> {
   if (request.method !== "GET" && request.method !== "HEAD") {
-    return plain(`Sites are read-only. Deploy at https://${env.SITE_DOMAIN}\n`, 405, { Allow: "GET, HEAD" });
+    return plain(`Sites are read-only. Deploy at https://${env.SITE_DOMAIN}\n`, 405, { Allow: READ_METHODS });
   }
 
   let id: string;

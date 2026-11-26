@@ -49,7 +49,7 @@ test("text files are stored gzipped and reach gzip and plain clients intact", as
   assert.ok(stored > 0 && stored < page.length / 5, `the upload is compressed: ${run.stderr}`);
 
   const zipped = await visit(url, "/", { headers: { "accept-encoding": "gzip" } });
-  assert.equal(zipped.headers.vary, "Accept-Encoding");
+  assert.equal(zipped.headers.vary, "Accept-Encoding, Origin");
   assert.equal(zipped.text, page);
 
   const plain = await visit(url, "/", { headers: { "accept-encoding": "identity" } });
