@@ -5,7 +5,7 @@ import type { Env } from "./env";
 import { isDeployId, nameProblem } from "./names";
 import type { PackFile } from "./pack";
 import { fileListPage, privateSitePage } from "./pages";
-import { decodePath, parseRange, resolve } from "./resolve";
+import { decodePath, isReserved, parseRange, redirectLocation, resolve } from "./resolve";
 import { deployKey, EDGE_SECONDS, loadDeploy, readPointer, type Deploy } from "./storage";
 
 const ENTRY_PATH = /^\/__site\/entries\/(0|[1-9]\d*)$/;
@@ -36,13 +36,17 @@ export async function serveSite(request: Request, env: Env, ctx: ExecutionContex
 
   const url = new URL(request.url);
   if (deploy.index.encrypted) return serveEncrypted(request, env, ctx, deploy, named, url.pathname);
-  if (url.pathname.startsWith("/__site/")) return notFound();
   const pathname = decodePath(url.pathname);
   if (pathname === null) return notFound();
+  if (isReserved(pathname)) return notFound();
   const target = resolve({ spa: deploy.index.spa, files: deploy.index.files, byPath: deploy.byPath }, pathname);
 
   if (target.kind === "missing") return notFound();
-  if (target.kind === "folder") return new Response(null, { status: 308, headers: { Location: `${url.pathname}/${url.search}`, "Cache-Control": REVALIDATE } });
+  if (target.kind === "redirect") {
+    const location = redirectLocation(target.path, url);
+    if (location === null) return notFound();
+    return new Response(null, { status: 308, headers: { Location: location, "Cache-Control": REVALIDATE } });
+  }
   if (target.kind === "list") return listing(request, deploy, named, url.hostname);
   return serveFile(request, env, ctx, deploy, target.number, target.status, named);
 }
@@ -61,7 +65,7 @@ async function serveEncrypted(request: Request, env: Env, ctx: ExecutionContext,
     return serveFile(request, env, ctx, deploy, number, 200, named);
   }
   return new Response(privateSitePage(), {
-    headers: { "Content-Type": "text/html; charset=utf-8", "X-Content-Type-Options": "nosniff", "Cache-Control": REVALIDATE, "Referrer-Policy": "no-referrer" }
+    headers: { "Content-Type": "text/html; charset=utf-8", "X-Content-Type-Options": "nosniff", "Cache-Control": REVALIDATE, "Referrer-Policy": "no-referrer", "X-Site-Bootstrap": "1" }
   });
 }
 

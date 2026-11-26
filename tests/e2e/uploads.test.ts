@@ -41,6 +41,30 @@ test("a pack is deployed exactly as described by its index", async () => {
   assert.equal((await visit(deployed.url, "/a/b.txt")).text, "123");
 });
 
+test("an exact name wins and a name that folds to two files matches neither", async () => {
+  const nfc = "Café.html".normalize("NFC");
+  const nfd = "café.html".normalize("NFD");
+  const names = ["About.html", "about.html", nfc, nfd, "404.html"];
+  let offset = 0;
+  const files = names.map((path) => {
+    const entry = { path, offset, length: Buffer.byteLength(path), type: "text/html; charset=utf-8", gzip: false };
+    offset += entry.length;
+    return entry;
+  });
+  const response = await upload("/", pack({ spa: false, files }, Buffer.from(names.join(""))), { accept: "application/json" }, "POST");
+  assert.equal(response.status, 201, response.text);
+  const { url } = JSON.parse(response.text) as { url: string };
+
+  assert.equal((await visit(url, "/About.html")).text, "About.html");
+  assert.equal((await visit(url, "/about")).text, "about.html");
+  assert.equal((await visit(url, `/${encodeURIComponent(nfd)}`)).text, nfd);
+  for (const path of ["/ABOUT.html", "/ABOUT", `/${encodeURIComponent("CAFÉ.html")}`]) {
+    const reply = await visit(url, path);
+    assert.equal(reply.status, 404, path);
+    assert.equal(reply.text, "404.html", path);
+  }
+});
+
 test.each([
   ["offsets that skip bytes", { spa: false, files: [{ path: "index.html", offset: 2, length: 3, type: "text/html", gzip: false }] }, "hello", /offsets do not line up/],
   ["lengths that overrun the upload", { spa: false, files: [{ path: "index.html", offset: 0, length: 50, type: "text/html", gzip: false }] }, "hello", /do not add up/],

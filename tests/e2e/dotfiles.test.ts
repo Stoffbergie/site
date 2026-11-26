@@ -102,6 +102,23 @@ test(".well-known deploys with the right types while secrets and junk stay behin
   await checkPublic(idHost);
 });
 
+test("other letter cases find .well-known files only under the .well-known spelling", async () => {
+  const { url } = await deploy(["--no-copy", site()]);
+  assert.equal((await visit(url, "/.well-known/WebFinger")).status, 200);
+  assert.equal((await visit(url, "/.well-known/Security.TXT")).text, securityTxt);
+  for (const path of ["/.WELL-KNOWN/webfinger", "/.Well-Known/security.txt", "/tenant/.Well-known/openid-configuration"]) {
+    assert.equal((await visit(url, path)).status, 404, `${path} is not served`);
+  }
+});
+
+test("a single-page app answers missing .well-known files and known file types with 404", async () => {
+  const { url } = await deploy(["--no-copy", folder({ "index.html": `<h1>App</h1><script src="/app.js"></script>`, "app.js": "" })]);
+  assert.match((await visit(url, "/users/john.doe")).text, /App/);
+  for (const path of ["/.well-known/webfinger", "/.well-known/apple-app-site-association", "/apple-app-site-association", "/feed.rss", "/model.glb"]) {
+    assert.equal((await visit(url, path)).status, 404, `${path} is not the app`);
+  }
+});
+
 test("build output with only junk dot-names deploys without a note", async () => {
   const { run } = await deploy(["--no-copy", folder({ "index.html": "hi", ".DS_Store": "junk", ".nojekyll": "", ".gitkeep": "", ".git/HEAD": "ref" })]);
   assert.match(run.stderr, /1 file/);

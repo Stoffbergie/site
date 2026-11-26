@@ -63,7 +63,11 @@ function usage(origin: string, domain: string): Section[] {
       rows: [
         ["site index.html style.css", "Loose files", "Deploy files from different places; each lands at the root under its filename."],
         ["cat page.html | site -", "From a pipe", "Deploy stdin as index.html."],
-        ["site dist --spa", "Single-page apps", "Serve index.html for unknown paths without a file extension, so client-side routes work."],
+        [
+          "site dist --spa",
+          "Single-page apps",
+          "Serve index.html for client-side routes, any path not ending in a file extension. Apps whose only page is index.html, with no 404.html, get this without the flag."
+        ],
         ["site key", "Your key", "Print the key that owns your deploys and names. It is made the first time you deploy and kept on this machine."],
         ["site key <key>", "Another machine", "Save your key on a second machine to deploy, list and remove the same sites from there."]
       ]
@@ -129,6 +133,7 @@ export function privateSitePage(): string {
 <section data-state="wrong" hidden><h1>This key does not open this site</h1><p>Check that the link is complete, or ask whoever shared it for a new one.</p></section>
 <section data-state="unsupported" hidden><h1>This browser cannot open private sites</h1><p>Private sites are decrypted by a service worker. Open the full link in a regular window of a current browser.</p></section>
 <section data-state="failed" hidden><h1>Could not open this site</h1><p>Reload the page to try again.</p></section>
+<section data-state="stuck" hidden><h1>This page did not open</h1><p>Go to the <a href="/">home page</a>, or open the full link again.</p></section>
 <script src="/__site/boot.js"></script>`,
     { description: "A private site." }
   );

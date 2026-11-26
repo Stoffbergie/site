@@ -137,6 +137,7 @@ afterAll(async () => {
 
 async function see(page: Page, url: string): Promise<string> {
   await page.goto(url);
+  await page.waitForFunction(`document.readyState === "complete" && document.querySelector("[data-state]") === null`);
   return page.evaluate(seenText);
 }
 

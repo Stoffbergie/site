@@ -110,6 +110,7 @@ What it protects and what it doesn't:
 - Anyone with the full link can read the site. Share it like a password.
 - The server, and anyone with only the URL before `#`, cannot. They get a page saying the site is private.
 - The address of a page someone opens directly or hard-reloads reaches the server as a request path, like any URL. Contents, and the names of everything else, do not.
+- Re-opening the full link in a tab that already shows the site leaves the key in the address bar, where the page's scripts can read it, until the next navigation.
 - To take access away, remove the deploy with `site rm`, or release the name. There is no other revocation.
 - A name holding an encrypted site never turns public by accident: deploying to it without `-e` is refused.
 - It needs JavaScript and service workers, so it opens in current browsers but not in private windows that turn service workers off. Encrypting needs the CLI; there is no encrypted deploy through curl.
@@ -141,14 +142,20 @@ The key has two parts joined by a dot. The part before the dot signs you in. The
 
 ## What gets served
 
-| Request       | Serves                                     |
-| ------------- | ------------------------------------------ |
-| `/`           | `index.html`                               |
-| `/docs/`      | `docs/index.html`                          |
-| `/about`      | `about.html`, or a redirect to `/about/`   |
-| Anything else | `404.html` with status 404, or a plain 404 |
+| Request            | Serves                                                         |
+| ------------------ | -------------------------------------------------------------- |
+| `/`                | `index.html` (or `index.htm`)                                  |
+| `/docs/`           | `docs/index.html`                                              |
+| `/docs`            | a redirect to `/docs/`, keeping the query string and `#anchor` |
+| `/about`           | `about.html`, `about.htm`, or a redirect to `/about/`          |
+| `/about/`          | a redirect to `/about` when `about.html` is a page             |
+| `/ABOUT`, `/Café`  | the file whose name differs only in letter case or accent form |
+| `/myrepo/assets/x` | `assets/x` when the build was made for a base path             |
+| `/.well-known/x`   | `.well-known/x`; other dot-names are never deployed            |
+| Unknown route      | `index.html` with `--spa` or for a single-page app, `200.html` |
+| Anything else      | `404.html` with status 404, or a plain 404                     |
 
-Encrypted sites follow the same rules, applied in the browser. With `--spa`, unknown paths without a file extension serve `index.html`. With no `index.html`, a lone HTML file is the page at `/`, a single file is served at `/` and under its name, and anything else shows a file list.
+An exact file always wins. A single-page app needs no flag when `index.html` is its only HTML or XHTML page, it has a script and there is no `404.html`. A route is any path without a content type: one that does not end in an extension from the type table below, like `.js`, `.png` or `.rss`, and is not a registered `.well-known` file, so `/users/john.doe` is a route. Letter case and accent form never change a name starting with a dot, so `/.WELL-KNOWN/` is not `/.well-known/`, and when two files differ only in letter case or accent form, only their exact names find them. Redirects and fallback pages carry the same cross-origin headers as files. Encrypted sites follow the same rules, applied in the browser, and a link may carry an anchor after the key: `https://<id>.site.stoff.dev/guide#<key>#install`. With no `index.html`, a lone HTML file is the page at `/`, a single file is served at `/` and under its name, and anything else shows a file list.
 
 Every file is served with its standard content type, taken from its extension: the same table as the `mime` and `mime-db` packages that Cloudflare and GitHub Pages use, so feeds, manifests, source maps, modules, fonts, media, HLS and DASH streams, captions, 3D models, `.wasm` and documents behave as they do elsewhere. Files with an unknown extension or none, like `LICENSE` or `CNAME`, are served as UTF-8 plain text when they look like text and as `application/octet-stream`, a download, when they do not. Nothing is ever sniffed into HTML or script.
 

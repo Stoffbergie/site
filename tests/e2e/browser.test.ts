@@ -22,11 +22,6 @@ async function newPage(): Promise<Page> {
   return context.newPage();
 }
 
-async function heading(page: Page): Promise<string> {
-  await page.waitForSelector("h1");
-  return (await page.textContent("h1")) ?? "";
-}
-
 async function waitForHeading(page: Page, text: string): Promise<void> {
   await page.waitForFunction(`document.querySelector("h1")?.textContent === ${JSON.stringify(text)}`);
 }
@@ -58,12 +53,12 @@ test("an encrypted link opens the whole site in a browser", async () => {
   assert.equal(page.url(), `${origin}/about`);
 
   await page.goto(`${origin}/docs`);
+  await waitForHeading(page, "Docs");
   assert.equal(page.url(), `${origin}/docs/`);
-  assert.equal(await heading(page), "Docs");
 
   const missing = await page.goto(`${origin}/nowhere`);
   assert.equal(missing?.status(), 404);
-  assert.equal(await heading(page), "Lost here");
+  await waitForHeading(page, "Lost here");
 
   const ranges = await page.evaluate(async () => {
     const read = async (range: string) => {
@@ -88,6 +83,7 @@ test("an encrypted link opens the whole site in a browser", async () => {
   assert.equal(ranges.wholeType, "application/octet-stream");
 
   await page.goto(`${origin}/`);
+  await waitForHeading(page, "Private home");
   await page.reload();
   await waitForHeading(page, "Private home");
 
@@ -132,7 +128,7 @@ test("--spa serves index.html for routes inside an encrypted site", async () => 
 
   const route = await page.goto(`${origin}/projects/42`);
   assert.equal(route?.status(), 200);
-  assert.equal(await heading(page), "App shell");
+  await waitForHeading(page, "App shell");
   const missing = await page.goto(`${origin}/missing.js`);
   assert.equal(missing?.status(), 404);
   await page.context().close();

@@ -1,5 +1,5 @@
 import { fileListPage } from "../pages";
-import { decodePath, parseRange, resolve, type ByteRange } from "../resolve";
+import { decodePath, isReserved, parseRange, redirectLocation, resolve, type ByteRange, type Target } from "../resolve";
 import { CHUNK_SIZE, chunkCount, fetchEntry, fetchMeta, NotPrivate, openChunk, openDeploy, readKey, SEALED_CHUNK_SIZE, TAG_SIZE, WrongKey, type Meta, type Site } from "./site";
 
 type ExtendableEvent = Event & { waitUntil(promise: Promise<unknown>): void };
@@ -20,6 +20,7 @@ const worker = self as unknown as ServiceWorkerScope;
 type Opened = { kind: "site"; site: Site } | { kind: "public" } | { kind: "locked" };
 
 const BOOTSTRAP_PATH = "/";
+const NETWORK_PATH = /^\/__site\/(?:meta|boot\.js|entries\/(?:0|[1-9]\d*))$/;
 
 let current: Site | null = null;
 
@@ -39,7 +40,15 @@ worker.addEventListener("fetch", (event) => {
   const request = event.request;
   const url = new URL(request.url);
   if (url.origin !== worker.location.origin) return;
-  if (url.pathname.startsWith("/__site/")) return;
+  if (NETWORK_PATH.test(url.pathname)) {
+    event.respondWith(fetch(request, { referrerPolicy: "no-referrer" }));
+    return;
+  }
+  const pathname = decodePath(url.pathname);
+  if (pathname === null || isReserved(pathname)) {
+    event.respondWith(Promise.resolve(notFound()));
+    return;
+  }
   if (request.method !== "GET" && request.method !== "HEAD") return;
   event.respondWith(answer(request, url));
 });
@@ -61,10 +70,31 @@ async function answer(request: Request, url: URL): Promise<Response> {
   const pathname = decodePath(url.pathname);
   if (pathname === null) return notFound();
   const target = resolve(site, pathname);
+  if (target.kind === "redirect") {
+    const location = redirectLocation(target.path, url);
+    if (location === null) return notFound();
+    return new Response(null, { status: 308, headers: { Location: location } });
+  }
+  if (request.mode === "navigate" && !cameFromThisSite(request)) return bootstrapPage(statusOf(target));
   if (target.kind === "missing") return notFound();
-  if (target.kind === "folder") return new Response(null, { status: 308, headers: { Location: `${url.pathname}/${url.search}` } });
   if (target.kind === "list") return html(fileListPage(url.hostname, site.files));
   return serveFile(request, site, target.number, target.status);
+}
+
+function statusOf(target: Target): number {
+  if (target.kind === "missing") return 404;
+  if (target.kind === "file") return target.status;
+  return 200;
+}
+
+async function bootstrapPage(status: number): Promise<Response> {
+  const page = await fetch(BOOTSTRAP_PATH, { cache: "no-store" });
+  return new Response(page.body, { status, headers: page.headers });
+}
+
+function cameFromThisSite(request: Request): boolean {
+  if (request.referrer === "") return false;
+  return new URL(request.referrer).origin === worker.location.origin;
 }
 
 async function openFor(navigating: boolean): Promise<Opened> {
