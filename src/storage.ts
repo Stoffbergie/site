@@ -11,12 +11,12 @@ import {
   readIndexLength,
   StreamTaker,
   startsWithMagic,
-  typeFor,
   validPath,
   type Encrypted,
   type PackIndex
 } from "./pack";
 import { byPathOf } from "./resolve";
+import { knownType, SNIFF_BYTES, sniffedType } from "./types";
 
 export const MAX_NAMES = 20;
 export const EDGE_SECONDS = 300;
@@ -74,9 +74,15 @@ export async function storeDeploy(env: Env, request: Request, filename: string, 
     total = body.length;
   } else {
     const safeName = validPath(filename) && !filename.includes("/") ? filename : "file";
-    index = { spa: false, files: [{ path: safeName, offset: 0, length: body.length, type: typeFor(safeName), gzip: false }] };
+    let type = knownType(safeName);
+    let head: Uint8Array = new Uint8Array(0);
+    if (type === null) {
+      head = await taker.take(SNIFF_BYTES - magic.byteLength);
+      type = sniffedType(new Uint8Array([...magic, ...head]));
+    }
+    index = { spa: false, files: [{ path: safeName, offset: 0, length: body.length, type, gzip: false }] };
     const header = encodeHeader(index);
-    source = taker.remaining([header, magic]);
+    source = taker.remaining([header, magic, head]);
     total = header.byteLength + body.length;
   }
 

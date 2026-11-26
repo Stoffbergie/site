@@ -1,5 +1,6 @@
 use crate::crypto::{self, LinkHint, LinkKey, Sealer};
 use crate::dotfiles::{self, DotName};
+use crate::types;
 use anyhow::{Context, Result, bail};
 use flate2::Compression;
 use flate2::write::GzEncoder;
@@ -87,7 +88,7 @@ impl Pack {
         let mut bodies = Vec::with_capacity(sources.len());
         let mut offset = 0;
         for (path, source) in sources {
-            let content_type = content_type(&path);
+            let content_type = content_type(&path, &source)?;
             let (body, gzip) = prepare(source, compressible(&path))?;
             let length = body.length();
             entries.push(Entry {
@@ -370,44 +371,21 @@ fn compressible(path: &str) -> bool {
     )
 }
 
-fn content_type(path: &str) -> &'static str {
-    let extension = extension(path);
-    if extension.is_empty()
-        && let Some(content_type) = dotfiles::well_known_type(path)
-    {
-        return content_type;
+fn content_type(path: &str, source: &Source) -> Result<&'static str> {
+    if let Some(content_type) = types::known(path) {
+        return Ok(content_type);
     }
-    match extension.as_str() {
-        "html" | "htm" => "text/html; charset=utf-8",
-        "css" => "text/css; charset=utf-8",
-        "js" | "mjs" => "text/javascript; charset=utf-8",
-        "json" | "map" => "application/json; charset=utf-8",
-        "webmanifest" => "application/manifest+json; charset=utf-8",
-        "txt" => "text/plain; charset=utf-8",
-        "md" => "text/markdown; charset=utf-8",
-        "csv" => "text/csv; charset=utf-8",
-        "xml" => "application/xml; charset=utf-8",
-        "svg" => "image/svg+xml",
-        "png" => "image/png",
-        "jpg" | "jpeg" => "image/jpeg",
-        "gif" => "image/gif",
-        "webp" => "image/webp",
-        "avif" => "image/avif",
-        "ico" => "image/x-icon",
-        "woff" => "font/woff",
-        "woff2" => "font/woff2",
-        "ttf" => "font/ttf",
-        "otf" => "font/otf",
-        "wasm" => "application/wasm",
-        "pdf" => "application/pdf",
-        "mp4" => "video/mp4",
-        "webm" => "video/webm",
-        "mp3" => "audio/mpeg",
-        "wav" => "audio/wav",
-        "ogg" => "audio/ogg",
-        "zip" => "application/zip",
-        _ => "application/octet-stream",
+    if let Some(content_type) = dotfiles::well_known_type(path) {
+        return Ok(content_type);
     }
+    let mut head = Vec::new();
+    if let Source::Path(file) = source {
+        File::open(file)
+            .with_context(|| format!("could not read {}", file.display()))?
+            .take(types::SNIFF_BYTES)
+            .read_to_end(&mut head)?;
+    }
+    Ok(types::sniffed(&head))
 }
 
 enum Plain {
