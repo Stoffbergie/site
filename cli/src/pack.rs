@@ -1,13 +1,14 @@
 use crate::charset::{fit_charset, fit_charset_streamed};
 use crate::crypto::{self, LinkHint, LinkKey, Sealer};
 use crate::dotfiles::{self, DotName};
+use crate::rules::{self, Rules};
 use crate::types;
 use anyhow::{Context, Result, bail};
 use flate2::Compression;
 use flate2::bufread::GzDecoder;
 use flate2::write::GzEncoder;
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufRead, BufReader, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
@@ -15,11 +16,14 @@ use std::path::{Path, PathBuf};
 pub const MAGIC: &[u8] = b"SITEPACK1\n";
 pub const MAX_DEPLOY_BYTES: u64 = 100_000_000;
 pub const MAX_FILES: usize = 5000;
+const MAX_INDEX_BYTES: usize = 2_000_000;
 
 #[derive(Serialize)]
 struct Index<'a> {
     spa: bool,
     files: &'a [Entry],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    rules: Option<&'a Rules>,
 }
 
 #[derive(Serialize)]
@@ -36,6 +40,8 @@ struct Entry {
 struct SealedIndex<'a> {
     spa: bool,
     files: Vec<SealedEntry<'a>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    rules: Option<&'a Rules>,
 }
 
 #[derive(Serialize)]
@@ -96,6 +102,7 @@ impl Pack {
         if files_to_keep > MAX_FILES {
             bail!("that is {files_to_keep} files; a deploy holds at most {MAX_FILES}");
         }
+        let rule_texts = rule_texts(&sources)?;
         let mut entries = Vec::with_capacity(sources.len());
         let mut bodies = Vec::with_capacity(sources.len());
         let mut copies_left_out = 0;
@@ -146,16 +153,28 @@ impl Pack {
                 "Left out {copies_left_out} precompressed copies of files in the deploy; site compresses those itself"
             ));
         }
+        let mut rules = None;
+        if rule_texts.redirects.is_some() || rule_texts.headers.is_some() {
+            let index_without_rules = serde_json::to_vec(&Index {
+                spa,
+                files: &entries,
+                rules: None,
+            })?;
+            let room = MAX_INDEX_BYTES.saturating_sub(index_without_rules.len());
+            rules = site_rules(rule_texts, &entries, room);
+        }
+        let rules = rules.as_ref();
         let (json, parts, data_length) = match link_key {
             None => {
                 let json = serde_json::to_vec(&Index {
                     spa,
                     files: &entries,
+                    rules,
                 })?;
                 let parts = bodies.into_iter().map(Part::Plain).collect();
                 (json, parts, offset)
             }
-            Some(link_key) => seal(spa, &entries, bodies, link_key)?,
+            Some(link_key) => seal(spa, &entries, rules, bodies, link_key)?,
         };
         let mut header = Vec::with_capacity(MAGIC.len() + 4 + json.len());
         header.extend_from_slice(MAGIC);
@@ -192,6 +211,7 @@ impl Pack {
 fn seal(
     spa: bool,
     entries: &[Entry],
+    rules: Option<&Rules>,
     bodies: Vec<Plain>,
     link_key: &LinkKey,
 ) -> Result<(Vec<u8>, Vec<Part>, u64)> {
@@ -208,6 +228,7 @@ fn seal(
                 length: entry.length,
             })
             .collect(),
+        rules,
     })?;
     let mut plains = vec![Plain::bytes(sealed_index)];
     plains.extend(bodies);
@@ -241,6 +262,51 @@ fn seal(
 enum Source {
     Path(PathBuf),
     Stdin,
+}
+
+struct RuleTexts {
+    redirects: Option<String>,
+    headers: Option<String>,
+}
+
+fn rule_texts(sources: &[(String, Source)]) -> Result<RuleTexts> {
+    Ok(RuleTexts {
+        redirects: rule_file(sources, rules::REDIRECTS_FILE)?,
+        headers: rule_file(sources, rules::HEADERS_FILE)?,
+    })
+}
+
+fn site_rules(texts: RuleTexts, entries: &[Entry], room: usize) -> Option<Rules> {
+    let paths: HashSet<&str> = entries
+        .iter()
+        .map(|entry| entry.path.as_str())
+        .filter(|path| *path != rules::REDIRECTS_FILE && *path != rules::HEADERS_FILE)
+        .collect();
+    let mut parsed = rules::parse(texts.redirects.as_deref(), texts.headers.as_deref(), &paths);
+    parsed.fit(room);
+    if let Some(summary) = parsed.summary() {
+        crate::output::note(&summary);
+    }
+    if parsed.is_empty() {
+        return None;
+    }
+    Some(parsed)
+}
+
+fn rule_file(sources: &[(String, Source)], name: &str) -> Result<Option<String>> {
+    let Some((_, Source::Path(path))) = sources.iter().find(|(relative, _)| relative == name)
+    else {
+        return Ok(None);
+    };
+    let bytes =
+        std::fs::read(path).with_context(|| format!("could not read {}", path.display()))?;
+    match String::from_utf8(bytes) {
+        Ok(text) => Ok(Some(text)),
+        Err(_) => {
+            crate::output::note(&format!("{name}: ignored, it is not UTF-8 text"));
+            Ok(None)
+        }
+    }
 }
 
 fn sources(arguments: &[String]) -> Result<Vec<(String, Source)>> {

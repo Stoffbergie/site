@@ -11,6 +11,38 @@ export type ByteRange = { offset: number; length: number };
 export function resolve(listing: Listing, pathname: string): Target {
   const { byPath, files } = listing;
   const relative = collapseSlashes(pathname).slice(1);
+  const page = findPage(listing, pathname);
+  if (page !== null) return page;
+  const exactly = (path: string): number | undefined => byPath.get(path);
+
+  if (relative === "") {
+    if (files.length === 1) return { kind: "file", number: 0, status: 200 };
+    const pages = files.filter((file) => isHtml(file));
+    if (pages.length === 1) return { kind: "file", number: files.indexOf(pages[0]), status: 200 };
+    return { kind: "list" };
+  }
+
+  const underBasePath = basePathAsset(files, relative, exactly);
+  if (underBasePath !== undefined) return { kind: "file", number: underBasePath, status: 200 };
+
+  const looksLikeRoute = knownType(relative) === null;
+  const home = byPath.get("index.html");
+  if (listing.spa && looksLikeRoute && home !== undefined) return { kind: "file", number: home, status: 200 };
+  const appShell = byPath.get("200.html");
+  if (appShell !== undefined && looksLikeRoute) return { kind: "file", number: appShell, status: 200 };
+
+  const notFoundPage = byPath.get("404.html");
+  if (notFoundPage !== undefined) return { kind: "file", number: notFoundPage, status: 404 };
+  if (looksLikeRoute && home !== undefined && isSinglePageApp(files)) return { kind: "file", number: home, status: 200 };
+  return { kind: "missing" };
+}
+
+/**
+ * Looks a decoded request path up by file name alone: the exact name, `.html`, `.htm`, folder indexes and the same names ignoring letter case and Unicode form, with the folder and trailing-slash redirects they imply. It returns null where `resolve` would go on to its fallbacks.
+ */
+export function findPage(listing: Listing, pathname: string): Target | null {
+  const { byPath, files } = listing;
+  const relative = collapseSlashes(pathname).slice(1);
 
   const candidates: string[] = [];
   if (relative === "" || relative.endsWith("/")) {
@@ -36,27 +68,7 @@ export function resolve(listing: Listing, pathname: string): Target {
     const folderIndex = firstMatch([`${relative}/index.html`, `${relative}/index.htm`], lookup);
     if (relative !== "" && folderIndex !== undefined) return { kind: "redirect", path: `/${relative}/` };
   }
-
-  if (relative === "") {
-    if (files.length === 1) return { kind: "file", number: 0, status: 200 };
-    const pages = files.filter((file) => isHtml(file));
-    if (pages.length === 1) return { kind: "file", number: files.indexOf(pages[0]), status: 200 };
-    return { kind: "list" };
-  }
-
-  const underBasePath = basePathAsset(files, relative, exactly);
-  if (underBasePath !== undefined) return { kind: "file", number: underBasePath, status: 200 };
-
-  const looksLikeRoute = knownType(relative) === null;
-  const home = byPath.get("index.html");
-  if (listing.spa && looksLikeRoute && home !== undefined) return { kind: "file", number: home, status: 200 };
-  const appShell = byPath.get("200.html");
-  if (appShell !== undefined && looksLikeRoute) return { kind: "file", number: appShell, status: 200 };
-
-  const notFoundPage = byPath.get("404.html");
-  if (notFoundPage !== undefined) return { kind: "file", number: notFoundPage, status: 404 };
-  if (looksLikeRoute && home !== undefined && isSinglePageApp(files)) return { kind: "file", number: home, status: 200 };
-  return { kind: "missing" };
+  return null;
 }
 
 const foldedPathsCache = new WeakMap<ListedFile[], Map<string, number | null>>();
@@ -109,7 +121,7 @@ export function isReserved(pathname: string): boolean {
   return collapseSlashes(pathname).startsWith("/__site/");
 }
 
-function collapseSlashes(pathname: string): string {
+export function collapseSlashes(pathname: string): string {
   return pathname.replace(/\/{2,}/g, "/");
 }
 

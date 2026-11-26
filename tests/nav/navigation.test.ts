@@ -1097,6 +1097,104 @@ add("landing", "a one-page site without scripts still has real 404s", async (t) 
   assert.equal(response?.status(), 404);
 });
 
+type RuleReply = { status: number; rule: string | null; name: string | null; text: string };
+const fetchWithRules = (t: T, path: string): Promise<RuleReply> =>
+  t.eval<RuleReply>(`fetch(${JSON.stringify(path)}).then(async (r) => ({ status: r.status, rule: r.headers.get("x-rule"), name: r.headers.get("x-name"), text: await r.text() }))`);
+
+add("rulesNav", "an unforced rule gives way to any page the navigation rules find and a forced rule does not", async (t) => {
+  await warm(t, "/", "rn-home");
+  await t.goto("/about");
+  await t.expect("rn-about", { path: "/about" });
+  await t.goto("/contact");
+  await t.expect("rn-contact", { path: "/contact" });
+  await t.goto("/guide");
+  await t.expect("rn-guide", { path: "/guide" });
+  await t.goto("/docs");
+  await t.expect("rn-docs", { path: "/docs/" });
+  await t.goto("/legacy/");
+  await t.expect("rn-legacy", { path: "/legacy/" });
+  await t.goto("/team");
+  await t.expect("rn-new", { path: "/new" });
+  await t.goto("/TEAM");
+  await t.expect("rn-team", { path: "/TEAM" });
+});
+add("rulesNav", "explicit rules win over 200.html and base-path assets", async (t) => {
+  await warm(t, "/", "rn-home");
+  await t.goto("/blog/post");
+  await t.expect("rn-new", { path: "/new" });
+  await t.goto("/myrepo/assets/app.js");
+  await t.expect("rn-new", { path: "/new" });
+  await t.goto("/some/route");
+  await t.expect("rn-shell", { path: "/some/route" });
+  const asset = await fetchWithRules(t, "/other/assets/app.js");
+  assert.deepEqual(asset, { status: 200, rule: "all", name: null, text: "window.app = true;" });
+});
+add("rulesNav", "rewrites find their page with the navigation rules and never chain or fall back", async (t) => {
+  await warm(t, "/", "rn-home");
+  await t.goto("/help");
+  await t.expect("rn-about", { path: "/help" });
+  await t.goto("/manual");
+  await t.expect("rn-docs", { path: "/manual" });
+  await t.goto("/g");
+  await t.expect("rn-guide", { path: "/g" });
+  for (const path of ["/gone/thing", "/chain"]) {
+    const response = await t.goto(path);
+    assert.equal(response?.status(), 404, path);
+    assert.equal(await t.eval(showsNotFound), true, path);
+  }
+});
+add("rulesNav", "redirects from rules and from the navigation rules never loop", async (t) => {
+  await warm(t, "/", "rn-home");
+  await t.goto("/s/page");
+  await t.expect("rn-s-page", { path: "/s/page" });
+  await t.goto("/s/page/");
+  await t.expect("rn-s-page", { path: "/s/page" });
+  await t.goto("/f/sub");
+  await t.expect("rn-f-sub", { path: "/f/sub/" });
+  await t.goto("/f/sub/");
+  await t.expect("rn-f-sub", { path: "/f/sub/" });
+  await t.goto("/c/x/");
+  await t.expect("rn-c-x", { path: "/C/x/" });
+});
+add("rulesNav", "rules match the normalised path", async (t) => {
+  await warm(t, "/", "rn-home");
+  for (const path of ["//old-page", "/old%2Dpage", "/x/%2e%2e/old-page"]) {
+    await t.goto(path);
+    await t.expect("rn-new", { path: "/new" });
+  }
+  const deep = await fetchWithRules(t, "/deep//dune");
+  assert.equal(deep.name, "dune");
+});
+add("rulesNav", "header rules reach every page the navigation rules serve and the rule files stay hidden", async (t) => {
+  await warm(t, "/", "rn-home");
+  for (const path of ["/", "/some/route", "/GUIDE", "/contact", "/help", "/docs/"]) {
+    const reply = await fetchWithRules(t, path);
+    assert.equal(reply.status, 200, path);
+    assert.equal(reply.rule, "all", path);
+  }
+  for (const path of ["/nope.js", "/gone/thing"]) {
+    const reply = await fetchWithRules(t, path);
+    assert.deepEqual([reply.status, reply.rule], [404, "all"], path);
+  }
+  for (const path of ["/_redirects", "/_Redirects", "/_HEADERS"]) {
+    const reply = await fetchWithRules(t, path);
+    assert.equal(reply.status, 200, path);
+    assert.doesNotMatch(reply.text, /X-Rule|\/old-page/, path);
+  }
+});
+add("rulesSpa", "rules win over the automatic single-page-app fallback, which still carries the site's headers", async (t) => {
+  await warm(t, "/", "rs-app");
+  await t.goto("/old");
+  await t.expect("rs-app", { path: "/dashboard" });
+  const route = await fetchWithRules(t, "/dashboard");
+  assert.deepEqual([route.status, route.rule], [200, "spa"]);
+  const response = await t.goto("/missing/thing");
+  assert.equal(response?.status(), 404);
+  assert.equal(await t.eval(showsNotFound), true);
+  const missing = await fetchWithRules(t, "/missing/thing");
+  assert.deepEqual([missing.status, missing.rule], [404, "spa"]);
+});
+
 for (const browserName of browserNames) {
   describe.concurrent(browserName, () => {
     for (const mode of modes) {

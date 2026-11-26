@@ -117,7 +117,7 @@ What it protects and what it doesn't:
 
 ## Moving from localhost or another host
 
-Every site is served over HTTPS and sends `Access-Control-Allow-Origin` for any origin, credentials included, answers preflight requests, and allows `Timing-Allow-Origin` and cross-origin embedding, so pages elsewhere can use its files, fonts, images, modules and iframes. Sites are read-only: anything but GET, HEAD and OPTIONS gets 405.
+Every site is served over HTTPS and sends `Access-Control-Allow-Origin` for any origin, credentials included, answers preflight requests, and allows `Timing-Allow-Origin` and cross-origin embedding, so pages elsewhere can use its files, fonts, images, modules and iframes. Each of these headers you set or remove in `_headers` is yours and the others keep their defaults; credentials are allowed by default only for the origin `Access-Control-Allow-Origin` names. Sites are read-only: anything but GET, HEAD and OPTIONS gets 405.
 
 What the address change breaks outside site: an API's CORS allowlist, OAuth redirect URLs, and keys restricted to a domain (Maps, Firebase and similar) need the new address added on their side.
 
@@ -157,9 +157,63 @@ The key has two parts joined by a dot. The part before the dot signs you in. The
 
 An exact file always wins. A single-page app needs no flag when `index.html` is its only HTML or XHTML page, it has a script and there is no `404.html`. A route is any path without a content type: one that does not end in an extension from the type table below, like `.js`, `.png` or `.rss`, and is not a registered `.well-known` file, so `/users/john.doe` is a route. Letter case and accent form never change a name starting with a dot, so `/.WELL-KNOWN/` is not `/.well-known/`, and when two files differ only in letter case or accent form, only their exact names find them. Redirects and fallback pages carry the same cross-origin headers as files. Encrypted sites follow the same rules, applied in the browser, and a link may carry an anchor after the key: `https://<id>.site.stoff.dev/guide#<key>#install`. With no `index.html`, a lone HTML file is the page at `/`, a single file is served at `/` and under its name, and anything else shows a file list.
 
+Rules in `_redirects` (below) come before this table. A rule without `!` gives way to whatever names a real page or folder here: the exact file, `.html` or `.htm`, a folder index or the folder redirect, and the same names in another letter case or accent form; a rule with `!` wins over all of it. `200.html`, the single-page app fallback, base-path assets and `404.html` come after every rule, so an explicit rule wins over them. A `200` or `404` rewrite finds its page with the same name rules, but with no fallback and no further rule, so a rewrite to a missing page is a 404. Rule paths match letter case exactly, as on Netlify, on the path as it is looked up here: escapes decoded and doubled slashes collapsed, so `//old` and `/%6Fld` match `/old`. A rule never only adds or removes a trailing slash, so rules and the redirects above cannot send a browser in a loop. `_redirects` and `_headers` count for none of these rules: they are never the page at `/`, never make a deploy a single-page app and never show in a file list. Header rules apply to every answer in this table except redirects.
+
 Every file is served with its standard content type, taken from its extension: the same table as the `mime` and `mime-db` packages that Cloudflare and GitHub Pages use, so feeds, manifests, source maps, modules, fonts, media, HLS and DASH streams, captions, 3D models, `.wasm` and documents behave as they do elsewhere. Files with an unknown extension or none, like `LICENSE` or `CNAME`, are served as UTF-8 plain text when they look like text and as `application/octet-stream`, a download, when they do not. Nothing is ever sniffed into HTML or script.
 
 Text files are compressed before upload and served compressed. Text in any encoding reads as it does from disk: UTF-8 files are sent with `charset=utf-8`, and files in another encoding (Windows-1252, Shift_JIS, GB18030, UTF-16 and so on) or that declare one in a `<meta charset>`, `@charset` or XML declaration are sent with no charset, so the browser follows the file's own declaration. That holds for files with an unknown extension or none and for compressed build output served decoded too. Other files support byte ranges. Compressed build output works as on any well-configured server: a `.gz`, `.br` or `.unityweb` file a page loads directly (`.js`, `.mjs`, `.wasm`, `.css`, `.html`, `.svg`, `.data`, `.pck`, `.mem`, `.symbols.json` under the suffix, as Unity, Emscripten and Godot write) is served decoded with the inner file's type, so `game.wasm.gz` streams as `application/wasm`. One that unpacks to more than 100 MB fails the deploy. Any other `.gz` or `.br`, such as `backup.tar.gz` or `data.csv.gz`, arrives byte for byte as the compressed file. A `.gz` or `.br` copy next to a file holding the same content (from compression plugins or `gzip_static` setups) is left out, since site compresses the original itself. Deploy URLs are cached by browsers for a year, since a deploy never changes; named URLs revalidate on every load.
+
+### Redirects and headers
+
+A `_redirects` or `_headers` file at the root of the folder works as it does on Netlify and Cloudflare Pages, so a site moved from there behaves the same. Both are read when you deploy and are never served.
+
+```txt
+# _redirects
+/old          /new             301
+/blog/*       /posts/:splat    301
+/news/:year/:slug   /articles/:year/:slug
+/search       /find?from=search
+/docs         https://docs.example.com   302
+/forced       /new             301!
+/closed/*     /closed.html     404
+/*            /index.html      200
+```
+
+| `_redirects`                  | What happens                                                                                         |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `301` `302` `303` `307` `308` | Redirect; `302` when no status is given. The query string is kept unless the destination has its own |
+| `200`                         | Serve another path of this site at this address (single-page app fallbacks)                          |
+| `404`                         | Serve that page with status 404, or `404.html` if it is missing, never the `--spa` app shell         |
+| `*` and `:splat`, `:name`     | Splat across segments, placeholder for one segment                                                   |
+| `!` after the status          | Apply even when a page exists at the path; otherwise the page wins                                   |
+| Order                         | The first matching line that applies wins; a trailing slash does not matter                          |
+| Loops                         | A rule back to the address requested is skipped; rules that redirect to each other are reported      |
+| `https://` destination        | Redirect to another site                                                                             |
+
+```txt
+# _headers
+/*
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: require-corp
+  Content-Security-Policy: default-src 'self'
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+/*.jpg
+  ! Content-Security-Policy
+```
+
+Every matching block applies in file order; a header set twice is joined with a comma, `! Name` removes it, and `:splat` and `:name` work in values. Custom headers apply to pages, files, fallback pages and 404 responses, not to redirects.
+
+What is left out, reported when you deploy and skipped without failing it:
+
+- Proxying (`200` to another site), country, language, role and cookie conditions, query-parameter matching, signed rules and rules for other domains: they need a server.
+- Headers site sets itself: `Set-Cookie` (a cookie could reach every other site under the domain), `ETag`, `Vary`, `Location`, `X-Content-Type-Options`, content length, encoding and range headers, and CDN cache controls.
+- Headers that would reach other sites, since every site shares one domain: `Clear-Site-Data` (it clears cookies for the whole domain), `Origin-Agent-Cluster`, `NEL`, `Report-To` and the device-bound session headers.
+- `Cache-Control` on named URLs, unless it has a `no-cache` or `no-store` directive of its own: named URLs always revalidate so a redeploy shows on the next load. On deploy URLs it is used as written. A value with an unclosed quote is never used.
+- A redirect written as a path that would leave the site, such as `/go/* //:splat`, is skipped and the next matching line is tried. So is one whose address, with the query it keeps, would pass 16,384 characters.
+- Limits: 10,000 redirects, of which 1,000 may use `*` or placeholders; 1,000 header paths and 2,000 header lines; 2,000 characters per line and per destination once %-encoded; 32 KB of custom headers per response; and whatever fits a deploy's 2 MB index, keeping the first rules.
+
+On private sites the rules are encrypted with everything else and applied in the browser. A redirect to another site never passes on the key in the link. Headers cannot reach the first visit, a hard reload or requests from other sites, which the browser makes without the decrypting service worker, and `Cache-Control` does nothing there. Isolation, content security and framing headers apply to every page after the first load.
 
 <details>
 <summary><strong>Use curl, no install needed</strong></summary>

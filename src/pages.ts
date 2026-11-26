@@ -68,6 +68,11 @@ function usage(origin: string, domain: string): Section[] {
           "Single-page apps",
           "Serve index.html for client-side routes, any path not ending in a file extension. Apps whose only page is index.html, with no 404.html, get this without the flag."
         ],
+        [
+          "dist/_redirects, dist/_headers",
+          "Redirects and headers",
+          "A _redirects or _headers file at the root of the folder works as on Netlify and Cloudflare Pages: redirects, rewrites such as /* /index.html 200, custom 404 pages and custom headers. Lines that need a server are reported when you deploy and skipped."
+        ],
         ["site key", "Your key", "Print the key that owns your deploys and names. It is made the first time you deploy and kept on this machine."],
         ["site key <key>", "Another machine", "Save your key on a second machine to deploy, list and remove the same sites from there."]
       ]

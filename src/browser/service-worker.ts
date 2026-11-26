@@ -1,5 +1,6 @@
 import { fileListPage } from "../pages";
-import { decodePath, isReserved, parseRange, redirectLocation, resolve, type ByteRange, type Target } from "../resolve";
+import { decodePath, isReserved, parseRange, redirectLocation, type ByteRange, type Target } from "../resolve";
+import { applyHeaderRules, checkRules, isConfigFile, route, type SiteRules } from "../rules";
 import { CHUNK_SIZE, chunkCount, fetchEntry, fetchMeta, NotPrivate, openChunk, openDeploy, readKey, SEALED_CHUNK_SIZE, TAG_SIZE, WrongKey, type Meta, type Site } from "./site";
 
 type ExtendableEvent = Event & { waitUntil(promise: Promise<unknown>): void };
@@ -17,12 +18,13 @@ type ServiceWorkerScope = {
 
 const worker = self as unknown as ServiceWorkerScope;
 
-type Opened = { kind: "site"; site: Site } | { kind: "public" } | { kind: "locked" };
+type OpenSite = Site & { siteRules: SiteRules | undefined };
+type Opened = { kind: "site"; site: OpenSite } | { kind: "public" } | { kind: "locked" };
 
 const BOOTSTRAP_PATH = "/";
 const NETWORK_PATH = /^\/__site\/(?:meta|boot\.js|entries\/(?:0|[1-9]\d*))$/;
 
-let current: Site | null = null;
+let current: OpenSite | null = null;
 
 worker.addEventListener("install", () => {
   void worker.skipWaiting();
@@ -69,22 +71,37 @@ async function answer(request: Request, url: URL): Promise<Response> {
   const site = opened.site;
   const pathname = decodePath(url.pathname);
   if (pathname === null) return notFound();
-  const target = resolve(site, pathname);
+  const routed = route(site, site.siteRules, pathname, url);
+  if (routed.kind === "redirect") return redirect(routed.status, routed.location, routed.crossOrigin);
+  const target = routed.target;
   if (target.kind === "redirect") {
     const location = redirectLocation(target.path, url);
-    if (location === null) return notFound();
-    return new Response(null, { status: 308, headers: { Location: location } });
+    if (location !== null) return new Response(null, { status: 308, headers: { Location: location } });
   }
   if (request.mode === "navigate" && !cameFromThisSite(request)) return bootstrapPage(statusOf(target));
-  if (target.kind === "missing") return notFound();
-  if (target.kind === "list") return html(fileListPage(url.hostname, site.files));
-  return serveFile(request, site, target.number, target.status);
+  let response: Response;
+  if (target.kind === "file") {
+    response = await serveFile(request, site, target.number, target.status);
+  } else if (target.kind === "list") {
+    const listed = site.files.filter((file) => !isConfigFile(file.path));
+    response = html(fileListPage(url.hostname, listed));
+  } else {
+    response = notFound();
+  }
+  applyHeaderRules(response.headers, site.siteRules, pathname, false);
+  return response;
+}
+
+function redirect(status: number, location: string, crossOrigin: boolean): Response {
+  let sent = location;
+  if (crossOrigin && !location.includes("#")) sent = `${location}#`;
+  return new Response(null, { status, headers: { Location: sent } });
 }
 
 function statusOf(target: Target): number {
-  if (target.kind === "missing") return 404;
   if (target.kind === "file") return target.status;
-  return 200;
+  if (target.kind === "list") return 200;
+  return 404;
 }
 
 async function bootstrapPage(status: number): Promise<Response> {
@@ -114,13 +131,20 @@ async function openFor(navigating: boolean): Promise<Opened> {
   if (key === null) return { kind: "locked" };
   if (current !== null && current.id === meta.id && current.key === key) return { kind: "site", site: current };
   try {
-    current = await openDeploy(meta, key);
+    const site = await openDeploy(meta, key);
+    current = { ...site, siteRules: validRules(site.rules) };
   } catch (error) {
     current = null;
     if (error instanceof WrongKey) return { kind: "locked" };
     throw error;
   }
   return { kind: "site", site: current };
+}
+
+function validRules(value: unknown): SiteRules | undefined {
+  const checked = checkRules(value);
+  if ("problem" in checked) return undefined;
+  return checked.rules;
 }
 
 async function serveFile(request: Request, site: Site, number: number, status: 200 | 404): Promise<Response> {

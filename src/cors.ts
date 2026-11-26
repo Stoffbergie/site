@@ -15,11 +15,24 @@ export function preflight(request: Request): Response {
   return new Response(null, { status: 204, headers });
 }
 
+const siteDecisions = new WeakMap<Response, string[]>();
+
+export function keepSiteDecisions(response: Response, headerNames: string[]): void {
+  siteDecisions.set(response, headerNames);
+}
+
 export function openToOtherOrigins(request: Request, response: Response): Response {
-  allowOrigin(request, response.headers);
-  response.headers.set("Access-Control-Expose-Headers", EXPOSED_HEADERS);
-  response.headers.set("Timing-Allow-Origin", "*");
-  response.headers.set("Cross-Origin-Resource-Policy", "cross-origin");
+  const decidedBySite = siteDecisions.get(response) ?? [];
+  const siteDecidedOrigin = decidedBySite.includes("access-control-allow-origin");
+  const siteDecidedCredentials = decidedBySite.includes("access-control-allow-credentials");
+  const origin = request.headers.get("origin");
+  if (!siteDecidedOrigin || !siteDecidedCredentials) response.headers.append("Vary", "Origin");
+  if (!siteDecidedOrigin) response.headers.set("Access-Control-Allow-Origin", origin ?? "*");
+  const originAllowed = origin !== null && response.headers.get("access-control-allow-origin") === origin;
+  if (!siteDecidedCredentials && originAllowed) response.headers.set("Access-Control-Allow-Credentials", "true");
+  if (!decidedBySite.includes("access-control-expose-headers")) response.headers.set("Access-Control-Expose-Headers", EXPOSED_HEADERS);
+  if (!decidedBySite.includes("timing-allow-origin")) response.headers.set("Timing-Allow-Origin", "*");
+  if (!decidedBySite.includes("cross-origin-resource-policy")) response.headers.set("Cross-Origin-Resource-Policy", "cross-origin");
   return response;
 }
 
