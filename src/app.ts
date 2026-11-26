@@ -3,6 +3,7 @@ import type { Env } from "./env";
 import { isDeployId, isSiteKey, nameProblem, newNameProblem } from "./names";
 import { homePage, homeText, notFoundPage } from "./pages";
 import {
+  blockedKey,
   deployKey,
   encryptedName,
   holdsTooMuch,
@@ -16,13 +17,14 @@ import {
   readPointerRecord,
   releasePointer,
   removeDeploy,
+  removeDeploys,
   storeDeploy,
   writePointer,
   type Stored
 } from "./storage";
 
 type AppContext = Context<{ Bindings: Env }>;
-type Caller = { kind: "admin" } | { kind: "key"; owner: string } | { kind: "anonymous" } | { kind: "invalid" };
+type Caller = { kind: "admin" } | { kind: "key"; owner: string } | { kind: "anonymous" } | { kind: "invalid" } | { kind: "blocked" };
 type Claim = { etag: string | null; pointedId: string | null };
 
 type Pointing = "pointed" | "lost" | "holds encrypted";
@@ -37,6 +39,7 @@ const SECURITY_HEADERS: Record<string, string> = {
 const BULK_DEPLOY_BYTES = 10_000_000;
 const IPV6_GROUPS = 8;
 const IPV6_NETWORK_GROUPS = 4;
+const OWNER_PATTERN = /^[0-9a-f]{64}$/;
 
 export const app = new Hono<{ Bindings: Env }>();
 
@@ -154,6 +157,56 @@ app.delete("/deploys/:id", async (c) => {
   return text("deleted\n");
 });
 
+app.get("/deploys/:id", async (c) => {
+  if ((await identify(c)).kind !== "admin") return c.notFound();
+  const id = c.req.param("id");
+  const object = isDeployId(id) ? await c.env.SITES.head(deployKey(id)) : null;
+  if (!object) return text(`No deploy ${id}.\n`, 404);
+  return Response.json({
+    id,
+    owner: object.customMetadata?.owner ?? null,
+    size: Number(object.customMetadata?.size ?? 0),
+    files: Number(object.customMetadata?.files ?? 0),
+    createdAt: object.uploaded.toISOString(),
+    encrypted: linkHintOf(object)
+  });
+});
+
+app.get("/names/:name", async (c) => {
+  if ((await identify(c)).kind !== "admin") return c.notFound();
+  const name = c.req.param("name");
+  const record = await readPointerRecord(c.env, name);
+  if (!record) return text(`No name ${name}.\n`, 404);
+  return Response.json({ name, id: record.pointer?.id ?? null, owner: record.pointer?.owner ?? null, releasedBy: record.releasedBy });
+});
+
+app.on(["PUT", "DELETE"], "/blocked/:owner", async (c) => {
+  if ((await identify(c)).kind !== "admin") return c.notFound();
+  const owner = c.req.param("owner");
+  if (!OWNER_PATTERN.test(owner)) return badOwner();
+  if (c.req.method === "PUT") {
+    await c.env.SITES.put(blockedKey(owner), "");
+    return text("blocked\n");
+  }
+  await c.env.SITES.delete(blockedKey(owner));
+  return text("unblocked\n");
+});
+
+app.delete("/owners/:owner", async (c) => {
+  if ((await identify(c)).kind !== "admin") return c.notFound();
+  const owner = c.req.param("owner");
+  if (!OWNER_PATTERN.test(owner)) return badOwner();
+  const names = await ownedNames(c.env, owner);
+  for (const name of names) {
+    const record = await readPointerRecord(c.env, name);
+    if (record?.pointer?.owner !== owner) continue;
+    if (!(await releasePointer(c.env, name, owner, RELEASED_BY_ADMIN, record.etag))) return text(`${name} changed while releasing it; try again.\n`, 409);
+  }
+  const ids = (await ownedDeploys(c.env, owner)).map((object) => idOf(object));
+  await removeDeploys(c.env, owner, ids);
+  return text(`Removed ${ids.length} deploys and released ${names.length} names.\n`);
+});
+
 app.put("/:filename", (c) => deploy(c, c.req.param("filename")));
 
 app.notFound(async (c) => {
@@ -168,7 +221,7 @@ app.notFound(async (c) => {
 async function deploy(c: AppContext, filename: string): Promise<Response> {
   if (!(await allowed(c, c.env.DEPLOYS))) return tooMany();
   const caller = await identify(c);
-  if (caller.kind === "invalid") return needsKey(caller);
+  if (caller.kind === "invalid" || caller.kind === "blocked") return needsKey(caller);
   let owner: string | null = null;
   if (caller.kind === "key") owner = caller.owner;
 
@@ -283,10 +336,13 @@ async function identify(c: AppContext): Promise<Caller> {
   const token = c.env.SITE_TOKEN;
   if (token && same(presented, token)) return { kind: "admin" };
   if (!isSiteKey(presented)) return { kind: "invalid" };
-  return { kind: "key", owner: await sha256(presented) };
+  const owner = await sha256(presented);
+  if (await c.env.SITES.head(blockedKey(owner))) return { kind: "blocked" };
+  return { kind: "key", owner };
 }
 
 function needsKey(caller: Caller): Response {
+  if (caller.kind === "blocked") return text("This key is blocked for abuse; report a mistake at https://github.com/Stoffbergie/site/issues.\n", 403);
   if (caller.kind === "invalid") return text("That is not a site key; run site key to see yours.\n", 401);
   return text("This needs your key; use the site CLI or send Authorization: Bearer <key>.\n", 401);
 }
@@ -344,6 +400,10 @@ function siteUrl(label: string, domain: string): string {
 function wantsHtml(headers: Headers): boolean {
   const crawler = /WhatsApp|facebookexternalhit|Facebot|meta-externalagent|Twitterbot|LinkedInBot|Slackbot|Discordbot|TelegramBot|Googlebot|bingbot/i;
   return (headers.get("accept") ?? "").includes("text/html") || crawler.test(headers.get("user-agent") ?? "");
+}
+
+function badOwner(): Response {
+  return text("An owner is the 64 lowercase hex characters of a key's SHA-256.\n", 400);
 }
 
 function tooMany(): Response {

@@ -30,6 +30,7 @@ const HEAD_READ_BYTES = 65_536;
 const CHARSET_SNIFF_BYTES = 65_536;
 const MEMORY_BYTES = 16_000_000;
 const MEMORY_ENTRY_BYTES = 1024;
+const DELETES_PER_CALL = 500;
 export const EXPIRES_HEADER = "X-Site-Expires";
 const INDEX_BY_HEADER = "X-Site-Index";
 
@@ -56,6 +57,10 @@ export function ownedDeployKey(owner: string, id: string): string {
 
 export function ownedNameKey(owner: string, name: string): string {
   return `o/${owner}/n/${name}`;
+}
+
+export function blockedKey(owner: string): string {
+  return `b/${owner}`;
 }
 
 export async function storeDeploy(env: Env, request: Request, filename: string, owner: string | null, admitStoredBytes: (storedBytes: number) => Promise<boolean>): Promise<StoreResult> {
@@ -161,6 +166,14 @@ export async function removeDeploy(env: Env, id: string, owner: string | undefin
   if (owner) keys.push(ownedDeployKey(owner, id));
   await env.SITES.delete(keys);
   forget(id);
+}
+
+export async function removeDeploys(env: Env, owner: string, ids: string[]): Promise<void> {
+  for (let start = 0; start < ids.length; start += DELETES_PER_CALL) {
+    const batch = ids.slice(start, start + DELETES_PER_CALL);
+    await env.SITES.delete(batch.flatMap((id) => [deployKey(id), ownedDeployKey(owner, id)]));
+    for (const id of batch) forget(id);
+  }
 }
 
 export async function loadDeploy(env: Env, id: string): Promise<Deploy | null> {
