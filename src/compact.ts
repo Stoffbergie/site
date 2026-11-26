@@ -95,7 +95,7 @@ export async function readCompactPack(env: Env, taker: StreamTaker, bodyLength: 
   const header = encodeHeader(index);
   if (header.byteLength - PREAMBLE_LENGTH > MAX_INDEX_BYTES) return malformed("The pack index is too large.");
   const copies = { gone: false };
-  const source = assemble(env, header, segments, taker.remaining([]), owner as string, copies);
+  const source = assemble(env, header, segments, taker.remaining([]), owner, copies);
   return { index, source, total: header.byteLength + offset, sourceGone: () => copies.gone };
 }
 
@@ -113,7 +113,7 @@ function addSegment(segments: Segment[], next: Segment): void {
   segments.push(next);
 }
 
-function assemble(env: Env, header: Uint8Array, segments: Segment[], body: ReadableStream<Uint8Array>, owner: string, copies: { gone: boolean }): ReadableStream<Uint8Array> {
+function assemble(env: Env, header: Uint8Array, segments: Segment[], body: ReadableStream<Uint8Array>, owner: string | null, copies: { gone: boolean }): ReadableStream<Uint8Array> {
   const reader = body.getReader();
   let leftover: Uint8Array = new Uint8Array(0);
   let position = -1;
@@ -237,9 +237,9 @@ async function loadEarlier(env: Env, id: string, owner: string | null): Promise<
   return { files: index.files, dataStart: headerLength, etag: start.etag };
 }
 
-function sameSource(object: R2ObjectBody | R2Object | null, etag: string, owner: string): R2ObjectBody | null {
+function sameSource(object: R2ObjectBody | R2Object | null, etag: string, owner: string | null): R2ObjectBody | null {
   if (object === null || !("body" in object)) return null;
-  if (object.etag !== etag || object.customMetadata?.owner !== owner) return null;
+  if (owner === null || object.etag !== etag || object.customMetadata?.owner !== owner) return null;
   return object;
 }
 
