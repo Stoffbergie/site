@@ -2,7 +2,7 @@ import { strict as assert } from "node:assert";
 import { randomBytes } from "node:crypto";
 import { chromium, type Browser, type Page } from "playwright";
 import { afterAll, beforeAll, test } from "vite-plus/test";
-import { browserUrl, deploy, folder, newHome, uniqueName } from "../helpers/site";
+import { browserUrl, deploy, folder, newHome, runCli, uniqueName } from "../helpers/site";
 
 const pixel = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
 const bigFile = randomBytes(2.5 * 1024 * 1024);
@@ -20,6 +20,30 @@ afterAll(async () => {
 async function newPage(): Promise<Page> {
   const context = await browser.newContext();
   return context.newPage();
+}
+
+const storeScript = (action: string) => `new Promise((resolve, reject) => {
+  const opening = indexedDB.open("site", 1);
+  opening.onupgradeneeded = () => opening.result.createObjectStore("keys");
+  opening.onerror = () => reject(opening.error);
+  opening.onsuccess = () => {
+    const store = opening.result.transaction("keys", "readwrite").objectStore("keys");
+    const request = ${action};
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  };
+})`;
+
+async function storedKeyEntry(page: Page): Promise<unknown> {
+  return page.evaluate(`${storeScript(`store.get("link")`)}.then((value) => {
+    if (typeof value === "string") return value;
+    if (value === undefined) return "missing";
+    return { type: value.base.constructor.name, extractable: value.base.extractable, fingerprint: typeof value.fingerprint };
+  })`);
+}
+
+async function storeKeyText(page: Page, key: string): Promise<void> {
+  await page.evaluate(storeScript(`store.put(${JSON.stringify(key)}, "link")`));
 }
 
 async function waitForHeading(page: Page, text: string): Promise<void> {
@@ -156,4 +180,72 @@ test("without the key the site says it is private, and a wrong key says so", asy
   await wrong.goto(browserUrl(url));
   await wrong.waitForSelector("text=Secret");
   await wrong.context().close();
+});
+
+test("scripts on an opened private site cannot read the link key", async () => {
+  const { url } = await deploy(["--no-copy", "-e", folder({ "index.html": "<h1>Guarded</h1>" })]);
+  const key = new URL(url).hash.slice(1);
+  const page = await newPage();
+  await page.goto(browserUrl(url));
+  await waitForHeading(page, "Guarded");
+
+  assert.deepEqual(await storedKeyEntry(page), { type: "CryptoKey", extractable: false, fingerprint: "string" });
+  const leaked = await page.evaluate(`${storeScript(`store.getAll()`)}.then(async (values) => {
+    const found = [];
+    for (const value of values) {
+      found.push(JSON.stringify(value));
+      for (const format of ["raw", "jwk"]) {
+        try {
+          const exported = await crypto.subtle.exportKey(format, value.base);
+          found.push(JSON.stringify(exported), btoa(String.fromCharCode(...new Uint8Array(exported))));
+        } catch {}
+      }
+    }
+    return found.join(" ");
+  })`);
+  assert.equal(String(leaked).includes(key), false, "the key text never comes out of storage");
+  assert.equal(String(leaked).includes(Buffer.from(key, "base64url").toString("base64")), false);
+  await page.context().close();
+});
+
+test("a visitor whose key was stored as text still opens the site", async () => {
+  const { url } = await deploy(["--no-copy", "-e", folder({ "index.html": '<h1>Kept</h1><a href="/about">About</a>', "about.html": "<h1>About kept</h1>" })]);
+  const key = new URL(url).hash.slice(1);
+  const origin = new URL(browserUrl(url)).origin;
+
+  const fresh = await newPage();
+  await fresh.goto(`${origin}/`);
+  await fresh.waitForSelector("text=This site is private");
+  await storeKeyText(fresh, key);
+  await fresh.reload();
+  await waitForHeading(fresh, "Kept");
+  assert.deepEqual(await storedKeyEntry(fresh), { type: "CryptoKey", extractable: false, fingerprint: "string" });
+
+  await storeKeyText(fresh, key);
+  const session = await fresh.context().newCDPSession(fresh);
+  await session.send("ServiceWorker.enable");
+  await session.send("ServiceWorker.stopAllWorkers");
+  await fresh.click("a");
+  await waitForHeading(fresh, "About kept");
+  assert.deepEqual(await storedKeyEntry(fresh), { type: "CryptoKey", extractable: false, fingerprint: "string" });
+  await fresh.context().close();
+});
+
+test("the stored key is deleted once the name points at a public deploy", async () => {
+  const home = newHome();
+  const name = uniqueName("unlocked");
+  const { url } = await deploy(["--no-copy", "-e", "-n", name, folder({ "index.html": "<h1>Private first</h1>" })], { home });
+  const origin = new URL(browserUrl(url)).origin;
+  const page = await newPage();
+  await page.goto(browserUrl(url));
+  await waitForHeading(page, "Private first");
+
+  const released = await runCli(["rm", name], { home });
+  assert.equal(released.code, 0, released.stderr);
+  await deploy(["--no-copy", "-n", name, folder({ "index.html": "<h1>Public now</h1>" })], { home });
+  await page.goto(`${origin}/`);
+  await waitForHeading(page, "Public now");
+  assert.equal(await storedKeyEntry(page), "missing");
+  assert.equal(await page.evaluate("navigator.serviceWorker.getRegistration().then((registration) => registration === undefined)"), true);
+  await page.context().close();
 });

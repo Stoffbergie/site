@@ -1,7 +1,7 @@
 import { fileListPage } from "../pages";
 import { decodePath, GENERATED_ICON_PATHS, iconShapeAt, isReserved, parseRange, redirectLocation, type ByteRange, type IconShape, type Target } from "../resolve";
 import { applyHeaderRules, checkRules, isConfigFile, route, type SiteRules } from "../rules";
-import { CHUNK_SIZE, chunkCount, fetchEntry, fetchMeta, NotPrivate, openChunk, openDeploy, readKey, SEALED_CHUNK_SIZE, TAG_SIZE, WrongKey, type Meta, type Site } from "./site";
+import { CHUNK_SIZE, chunkCount, fetchEntry, fetchMeta, forgetKey, NotPrivate, openChunk, openDeploy, readKey, SEALED_CHUNK_SIZE, TAG_SIZE, WrongKey, type Meta, type Site } from "./site";
 
 type ExtendableEvent = Event & { waitUntil(promise: Promise<unknown>): void };
 type FetchEvent = ExtendableEvent & { readonly request: Request; respondWith(response: Promise<Response>): void };
@@ -129,6 +129,7 @@ async function openFor(navigating: boolean): Promise<Opened> {
   } catch (error) {
     if (error instanceof NotPrivate) {
       current = null;
+      await forgetKey();
       await worker.registration.unregister();
       return { kind: "public" };
     }
@@ -136,7 +137,7 @@ async function openFor(navigating: boolean): Promise<Opened> {
   }
   const key = await readKey();
   if (key === null) return { kind: "locked" };
-  if (current !== null && current.id === meta.id && current.key === key) return { kind: "site", site: current };
+  if (current !== null && current.id === meta.id && current.key.fingerprint === key.fingerprint) return { kind: "site", site: current };
   try {
     const site = await openDeploy(meta, key);
     current = { ...site, siteRules: validRules(site.rules) };

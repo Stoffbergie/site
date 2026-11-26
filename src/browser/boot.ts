@@ -1,4 +1,4 @@
-import { fetchMeta, forgetKey, openDeploy, readKey, saveKey, WrongKey } from "./site";
+import { fetchMeta, forgetKey, importLinkKey, openDeploy, readKey, saveKey, WrongKey, type LinkKey } from "./site";
 
 type State = "private" | "wrong" | "unsupported" | "failed" | "stuck";
 
@@ -89,7 +89,7 @@ function reopen(link: Link): void {
   openPage(link);
 }
 
-async function keyOpensSite(key: string): Promise<boolean> {
+async function keyOpensSite(key: LinkKey): Promise<boolean> {
   try {
     await openDeploy(await fetchMeta(), key);
     return true;
@@ -99,7 +99,7 @@ async function keyOpensSite(key: string): Promise<boolean> {
   }
 }
 
-async function storedKey(): Promise<string | null> {
+async function storedKey(): Promise<LinkKey | null> {
   try {
     return await readKey();
   } catch {
@@ -122,6 +122,31 @@ function waitForControl(registration: ServiceWorkerRegistration): Promise<boolea
   });
 }
 
+function waitForActivation(newWorker: ServiceWorker): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, CONTROL_TIMEOUT_MS);
+    const settle = () => {
+      if (newWorker.state !== "activated" && newWorker.state !== "redundant") return;
+      clearTimeout(timer);
+      resolve();
+    };
+    newWorker.addEventListener("statechange", settle);
+    settle();
+  });
+}
+
+async function registerCurrentWorker(): Promise<ServiceWorkerRegistration> {
+  const registration = await navigator.serviceWorker.register("/__site/sw.js", { scope: "/" });
+  try {
+    await registration.update();
+  } catch {
+    return registration;
+  }
+  const newWorker = registration.installing ?? registration.waiting;
+  if (newWorker !== null) await waitForActivation(newWorker);
+  return registration;
+}
+
 type WorkerAnswer = "page" | "bootstrap" | "unavailable";
 
 async function askWorker(): Promise<WorkerAnswer> {
@@ -140,15 +165,24 @@ async function boot(): Promise<void> {
   const controlledAlready = navigator.serviceWorker.controller !== null;
   const link = readLink();
   const stored = await storedKey();
-  const key = link.key ?? stored;
+  let key = stored;
+  if (link.key !== null) {
+    key = await importLinkKey(link.key);
+    if (key === null) {
+      dropKey(link);
+      show("wrong");
+      return;
+    }
+  }
   if (key === null) {
     show("private");
     return;
   }
 
-  if (!controlledAlready || key !== stored) {
+  const keyIsStored = stored !== null && key.fingerprint === stored.fingerprint;
+  if (!controlledAlready || !keyIsStored) {
     if (!(await keyOpensSite(key))) {
-      if (key === stored) await forgetKey();
+      if (keyIsStored) await forgetKey();
       dropKey(link);
       show("wrong");
       return;
@@ -161,6 +195,7 @@ async function boot(): Promise<void> {
     }
   }
   dropKey(link);
+  const registration = await registerCurrentWorker();
   if (controlledAlready) {
     const answer = await askWorker();
     if (answer === "page") reopen(link);
@@ -169,7 +204,6 @@ async function boot(): Promise<void> {
     return;
   }
 
-  const registration = await navigator.serviceWorker.register("/__site/sw.js", { scope: "/" });
   await navigator.serviceWorker.ready;
   if (!(await waitForControl(registration))) {
     show("unsupported");
