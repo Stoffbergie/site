@@ -500,30 +500,27 @@ add("flat", "a full link whose path starts with a doubled slash while the site i
   await t.open("//docs/guide.html");
   await t.expect("guide");
 });
-const endsStuck = async (t: T): Promise<void> => {
-  await t.waitFor(`document.querySelector('[data-state="stuck"]')?.hidden === false`);
-  await t.eval(`window.stayed = true`);
-  await t.page.waitForTimeout(2000);
-  assert.equal(await t.eval(`window.stayed === true && document.querySelector('[data-state="stuck"]')?.hidden === false`), true);
-};
+const showsNotFound = `document.body?.innerText.trim() === "Not found"`;
 add(
   "flat",
-  "a reserved path the service worker leaves alone stops reopening and says what to do",
+  "a reserved path while the site is open is a plain 404",
   async (t) => {
     await warm(t);
-    await t.page.goto(t.at("/__site/missing"));
-    await endsStuck(t);
+    const response = await t.page.goto(t.at("/__site/missing"));
+    assert.equal(response?.status(), 404);
+    assert.equal(await t.eval(showsNotFound), true);
   },
   { modes: ["private"] }
 );
 add(
   "flat",
-  "a full link to a reserved path stops and says what to do",
+  "a full link to a reserved path while the site is open is a plain 404",
   async (t) => {
     await warm(t);
     t.page = await t.context.newPage();
-    await t.open("/__site/missing");
-    await endsStuck(t);
+    const response = await t.open("/__site/missing");
+    assert.equal(response?.status(), 404);
+    assert.equal(await t.eval(showsNotFound), true);
   },
   { modes: ["private"] }
 );
@@ -727,16 +724,13 @@ add("viteSpa", "missing asset in a single-page app is a 404", async (t) => {
 });
 add("viteSpa", "reserved paths spelled with a doubled slash or percent-encoding never reach the app", async (t) => {
   await warm(t, "/", "spa-home");
-  for (const path of ["//__site/meta", "/%5F%5Fsite/meta", "//__site/entries/0"]) {
+  for (const path of ["//__site/meta", "/%5F%5Fsite/meta", "//__site/entries/0", "/__site/missing", "/__site/entries/x"]) {
     const answer = await t.eval<{ status: number; type: string; bootstrap: boolean }>(
       `fetch(location.origin + ${JSON.stringify(path)}).then((r) => ({ status: r.status, type: r.headers.get("content-type"), bootstrap: r.headers.has("x-site-bootstrap") }))`
     );
-    if (t.mode === "public") {
-      assert.equal(answer.status, 404, path);
-      assert.match(answer.type, /^text\/plain/, path);
-    } else {
-      assert.equal(answer.bootstrap, true, path);
-    }
+    assert.equal(answer.status, 404, path);
+    assert.match(answer.type, /^text\/plain/, path);
+    assert.equal(answer.bootstrap, false, path);
   }
 });
 add("spaWithNotFound", "a real 404.html wins over guessing a single-page app", async (t) => {

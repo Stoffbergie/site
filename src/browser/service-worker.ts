@@ -20,6 +20,7 @@ const worker = self as unknown as ServiceWorkerScope;
 type Opened = { kind: "site"; site: Site } | { kind: "public" } | { kind: "locked" };
 
 const BOOTSTRAP_PATH = "/";
+const NETWORK_PATH = /^\/__site\/(?:meta|boot\.js|entries\/(?:0|[1-9]\d*))$/;
 
 let current: Site | null = null;
 
@@ -39,8 +40,12 @@ worker.addEventListener("fetch", (event) => {
   const request = event.request;
   const url = new URL(request.url);
   if (url.origin !== worker.location.origin) return;
+  if (NETWORK_PATH.test(url.pathname)) return;
   const pathname = decodePath(url.pathname);
-  if (pathname !== null && isReserved(pathname)) return;
+  if (pathname !== null && isReserved(pathname)) {
+    event.respondWith(Promise.resolve(notFound()));
+    return;
+  }
   if (request.method !== "GET" && request.method !== "HEAD") return;
   event.respondWith(answer(request, url));
 });
