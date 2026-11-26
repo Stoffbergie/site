@@ -201,3 +201,15 @@ test("small files served from memory, neighbouring reads and revalidations carry
   assert.equal(changed.text, "<h1>Two</h1>");
   crossOrigin(changed, "a changed page");
 });
+
+test("a deploy made of files from more than eight earlier deploys still deploys", { timeout: 60_000 }, async () => {
+  const home = newHome();
+  const files: Record<string, Buffer> = {};
+  for (let number = 0; number < 10; number += 1) {
+    const name = `part-${number}.bin`;
+    files[name] = randomBytes(3000);
+    await deploy(["--no-copy", folder({ [name]: files[name] })], { home });
+  }
+  const { url } = await deploy(["--no-copy", folder(files)], { home });
+  await expectServed(url, files);
+});

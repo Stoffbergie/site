@@ -1,6 +1,6 @@
 use crate::output;
 use crate::pack::Pack;
-use anyhow::{Result, bail};
+use anyhow::{Result, anyhow, bail};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use std::sync::Arc;
@@ -71,19 +71,23 @@ const ATTEMPTS: u32 = 4;
 const STALLS_ALLOWED: u32 = 1;
 const STALL_SECONDS: f64 = 60.0;
 const SEND_BUFFER_ESTIMATE: f64 = 262_144.0;
+const LARGEST_SEND_BUFFER: f64 = 4_194_304.0;
+const SLOWEST_LINK_BYTES_PER_SECOND: f64 = 8_000.0;
 const LONGEST_RETRY_WAIT: u64 = 60;
 
 pub struct Progress {
     started: Instant,
+    total: u64,
     bytes: AtomicU64,
     first_millis: AtomicU64,
     last_millis: AtomicU64,
 }
 
 impl Progress {
-    fn new() -> Progress {
+    fn new(total: u64) -> Progress {
         Progress {
             started: Instant::now(),
+            total,
             bytes: AtomicU64::new(0),
             first_millis: AtomicU64::new(u64::MAX),
             last_millis: AtomicU64::new(0),
@@ -98,17 +102,30 @@ impl Progress {
     }
 
     fn stalled(&self) -> bool {
-        let first = self.first_millis.load(Ordering::Relaxed);
         let last = self.last_millis.load(Ordering::Relaxed);
         let idle = self.started.elapsed().as_secs_f64() - last as f64 / 1000.0;
-        let bytes = self.bytes.load(Ordering::Relaxed) as f64;
+        idle > self.allowed_idle_seconds()
+    }
+
+    fn allowed_idle_seconds(&self) -> f64 {
+        let first = self.first_millis.load(Ordering::Relaxed);
+        let last = self.last_millis.load(Ordering::Relaxed);
+        let bytes = self.bytes.load(Ordering::Relaxed);
         let active = last.saturating_sub(first) as f64 / 1000.0;
-        let mut allowed = STALL_SECONDS;
+        let mut measured_rate = None;
         if first != u64::MAX && active > 1.0 {
-            let rate = bytes / active;
-            allowed = allowed.max(3.0 * SEND_BUFFER_ESTIMATE / rate);
+            measured_rate = Some(bytes as f64 / active);
         }
-        idle > allowed
+        let handed_over = bytes >= self.total;
+        if handed_over {
+            let buffered = (self.total as f64).min(LARGEST_SEND_BUFFER);
+            let rate = measured_rate.unwrap_or(SLOWEST_LINK_BYTES_PER_SECOND);
+            return STALL_SECONDS + 3.0 * buffered / rate;
+        }
+        match measured_rate {
+            Some(rate) => STALL_SECONDS.max(3.0 * SEND_BUFFER_ESTIMATE / rate),
+            None => STALL_SECONDS,
+        }
     }
 }
 
@@ -129,6 +146,7 @@ fn agent() -> ureq::Agent {
     ureq::Agent::config_builder()
         .user_agent(concat!("site/", env!("CARGO_PKG_VERSION")))
         .timeout_connect(Some(Duration::from_secs(15)))
+        .timeout_recv_body(Some(Duration::from_secs(STALL_SECONDS as u64)))
         .http_status_as_error(false)
         .tls_config(
             ureq::tls::TlsConfig::builder()
@@ -140,15 +158,17 @@ fn agent() -> ureq::Agent {
         .new_agent()
 }
 
-fn attempt<Job>(job: Job) -> Attempt
+fn attempt<Job>(job: Job, total: u64) -> Attempt
 where
-    Job: FnOnce(Arc<Progress>) -> Result<Response, ureq::Error> + Send + 'static,
+    Job: FnOnce(ureq::Agent, Arc<Progress>) -> Result<Response, ureq::Error> + Send + 'static,
 {
-    let progress = Arc::new(Progress::new());
+    let agent = agent();
+    let progress = Arc::new(Progress::new(total));
     let (sender, receiver) = mpsc::channel();
     let shared = Arc::clone(&progress);
+    let working = agent.clone();
     std::thread::spawn(move || {
-        let _ = sender.send(job(shared));
+        let _ = sender.send(job(working, shared));
     });
     loop {
         match receiver.recv_timeout(Duration::from_millis(250)) {
@@ -157,6 +177,8 @@ where
             Err(mpsc::RecvTimeoutError::Disconnected) => return Attempt::Stalled,
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 if progress.stalled() {
+                    agent.shutdown();
+                    let _ = receiver.recv();
                     return Attempt::Stalled;
                 }
             }
@@ -164,9 +186,9 @@ where
     }
 }
 
-fn send<Job>(retry: Retry, job: Job) -> Result<Response>
+fn send<Job>(retry: Retry, total: u64, job: Job) -> Result<Response>
 where
-    Job: Fn(Arc<Progress>) -> Result<Response, ureq::Error> + Send + Sync + 'static,
+    Job: Fn(ureq::Agent, Arc<Progress>) -> Result<Response, ureq::Error> + Send + Sync + 'static,
 {
     let job = Arc::new(job);
     let mut stalls = 0;
@@ -174,7 +196,7 @@ where
     loop {
         tries += 1;
         let shared = Arc::clone(&job);
-        let outcome = attempt(move |progress| shared(progress));
+        let outcome = attempt(move |agent, progress| shared(agent, progress), total);
         let last_try = tries >= ATTEMPTS;
         match outcome {
             Attempt::Answered(response) => {
@@ -195,7 +217,7 @@ where
             }
             Attempt::Stalled => {
                 stalls += 1;
-                if stalls > STALLS_ALLOWED || last_try {
+                if stalls > STALLS_ALLOWED || last_try || retry == Retry::BeforeServerActs {
                     bail!(
                         "the connection to {} stalled; check your connection and try again",
                         base_url()
@@ -208,9 +230,8 @@ where
 
 fn retryable_status(status: u16, retry: Retry) -> bool {
     match status {
-        429 | 503 => true,
-        502 | 504 => true,
-        500 | 520..=530 => retry == Retry::Always,
+        429 => true,
+        502..=504 | 500 | 520..=530 => retry == Retry::Always,
         _ => false,
     }
 }
@@ -265,9 +286,9 @@ pub fn deploy(key: &str, pack: Pack, name: Option<&str>) -> Result<Outcome> {
     }
     let pack = Arc::new(pack);
     let authorization = format!("Bearer {key}");
-    let sent = send(Retry::Always, move |progress| {
+    let sent = send(Retry::Always, total, move |agent, progress| {
         let mut reader = Pack::reader(&pack, progress);
-        agent()
+        agent
             .post(&url)
             .header("Authorization", &authorization)
             .header("Accept", "application/json")
@@ -288,8 +309,8 @@ pub fn deploy(key: &str, pack: Pack, name: Option<&str>) -> Result<Outcome> {
 pub fn list(key: &str) -> Result<Listing> {
     let url = format!("{}/list", base_url());
     let authorization = format!("Bearer {key}");
-    let response = send(Retry::Always, move |_| {
-        agent()
+    let response = send(Retry::Always, 0, move |agent, _| {
+        agent
             .get(&url)
             .header("Authorization", &authorization)
             .call()
@@ -301,8 +322,8 @@ pub fn point(key: &str, name: &str, id: &str) -> Result<Pointed> {
     let url = format!("{}/names/{name}", base_url());
     let authorization = format!("Bearer {key}");
     let body = serde_json::to_vec(&serde_json::json!({ "id": id }))?;
-    let response = send(Retry::BeforeServerActs, move |_| {
-        agent()
+    let response = send(Retry::BeforeServerActs, 0, move |agent, _| {
+        agent
             .put(&url)
             .header("Authorization", &authorization)
             .header("Content-Type", "application/json")
@@ -310,7 +331,7 @@ pub fn point(key: &str, name: &str, id: &str) -> Result<Pointed> {
     })?;
     let response = refused_or(response)?;
     let encrypted = response.headers().contains_key("x-site-encrypted");
-    let url = text(response).trim().to_string();
+    let url = answer(response)?.trim().to_string();
     Ok(Pointed { url, encrypted })
 }
 
@@ -324,8 +345,8 @@ pub fn release_name(key: &str, name: &str) -> Result<()> {
 
 fn remove(key: &str, url: String) -> Result<()> {
     let authorization = format!("Bearer {key}");
-    let response = send(Retry::BeforeServerActs, move |_| {
-        agent()
+    let response = send(Retry::BeforeServerActs, 0, move |agent, _| {
+        agent
             .delete(&url)
             .header("Authorization", &authorization)
             .call()
@@ -334,9 +355,18 @@ fn remove(key: &str, url: String) -> Result<()> {
     Ok(())
 }
 
-fn json<T: DeserializeOwned>(mut response: Response) -> Result<T> {
-    let body = response.body_mut().read_to_vec()?;
-    Ok(serde_json::from_slice(&body)?)
+fn json<T: DeserializeOwned>(response: Response) -> Result<T> {
+    let body = answer(response)?;
+    Ok(serde_json::from_str(&body)?)
+}
+
+fn answer(mut response: Response) -> Result<String> {
+    response.body_mut().read_to_string().map_err(|_| {
+        anyhow!(
+            "the answer from {} was cut off; check your connection and try again",
+            base_url()
+        )
+    })
 }
 
 fn text(mut response: Response) -> String {

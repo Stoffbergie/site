@@ -9,22 +9,29 @@ export type Behavior =
   | { kind: "dropResponse" }
   | { kind: "duplicate" }
   | { kind: "throttle"; bytesPerSecond: number }
-  | { kind: "blackhole" };
+  | { kind: "blackhole" }
+  | { kind: "cutResponse"; status: number; body: string; declaredLength: number; hang: boolean }
+  | { kind: "forwardThenHold"; forwarded: () => void };
 
-export type FaultProxy = { url: string; connections: () => number; uploaded: () => number; close: () => void };
+export type FaultProxy = { url: string; connections: () => number; uploaded: () => number; received: (connection: number) => Buffer; close: () => void };
 
 const target = new URL(baseUrl);
 
 export async function faultProxy(plan: (connection: number) => Behavior): Promise<FaultProxy> {
   let connections = 0;
   let uploaded = 0;
+  const receivedBy = new Map<number, Buffer[]>();
   const sockets = new Set<net.Socket>();
   const server = net.createServer((client) => {
     connections += 1;
+    const connection = connections;
+    const received: Buffer[] = [];
+    receivedBy.set(connection, received);
     sockets.add(client);
     client.on("close", () => sockets.delete(client));
     client.on("error", () => client.destroy());
-    const behavior = plan(connections);
+    client.on("data", (chunk: Buffer) => received.push(chunk));
+    const behavior = plan(connection);
     handle(client, behavior, sockets, (count) => (uploaded += count));
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -33,6 +40,7 @@ export async function faultProxy(plan: (connection: number) => Behavior): Promis
     url: `http://127.0.0.1:${port}`,
     connections: () => connections,
     uploaded: () => uploaded,
+    received: (connection) => Buffer.concat(receivedBy.get(connection) ?? []),
     close: () => {
       for (const socket of sockets) socket.destroy();
       server.close();
@@ -71,10 +79,13 @@ function handle(client: net.Socket, behavior: Behavior, sockets: Set<net.Socket>
       forwarded += part.byteLength;
       count(part.byteLength);
       upstream.write(part);
-      if (forwarded >= behavior.bytes && behavior.kind === "dropAfter") {
+      if (forwarded < behavior.bytes) return;
+      if (behavior.kind === "dropAfter") {
         client.resetAndDestroy();
         upstream.destroy();
+        return;
       }
+      client.pause();
     });
     if (behavior.kind === "dropAfter") upstream.pipe(client);
     return;
@@ -124,6 +135,16 @@ function handle(client: net.Socket, behavior: Behavior, sockets: Set<net.Socket>
     }
     if (behavior.kind === "dropResponse") {
       forward(request, sockets, () => client.resetAndDestroy());
+      return;
+    }
+    if (behavior.kind === "cutResponse") {
+      const headers = `HTTP/1.1 ${behavior.status} Injected\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: ${behavior.declaredLength}\r\n\r\n`;
+      client.write(headers + behavior.body);
+      if (!behavior.hang) client.end();
+      return;
+    }
+    if (behavior.kind === "forwardThenHold") {
+      forward(request, sockets, () => behavior.forwarded());
       return;
     }
     forward(request, sockets, (first) => {

@@ -1,6 +1,8 @@
 import { strict as assert } from "node:assert";
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { request as httpRequest } from "node:http";
 import { inject, test } from "vite-plus/test";
 import { faultProxy, type Behavior } from "../helpers/faults";
@@ -12,6 +14,10 @@ type Timed = Run & { seconds: number };
 
 function payload(): Record<string, string | Buffer> {
   return { "index.html": `<h1>${randomBytes(8).toString("hex")}</h1>`, "data.bin": randomBytes(300_000) };
+}
+
+function largerThanSocketBuffers(): Record<string, string | Buffer> {
+  return { "index.html": `<h1>${randomBytes(8).toString("hex")}</h1>`, "data.bin": randomBytes(12_000_000) };
 }
 
 async function through(behaviors: (connection: number) => Behavior, args: string[], home: string): Promise<Timed> {
@@ -109,7 +115,7 @@ test("a server that keeps failing ends in one sentence quickly", { timeout: 90_0
 
 test("a link that stalls mid-upload is abandoned and retried", { timeout: 150_000 }, async () => {
   const { home, name } = await namedSite();
-  const files = payload();
+  const files = largerThanSocketBuffers();
   const run = await through(once({ kind: "stallAfter", bytes: 100_000 }), ["--no-copy", "-n", name, folder(files)], home);
   assert.equal(run.code, 0, run.stderr);
   assert.ok(run.seconds < 120, `recovered in ${run.seconds}s`);
@@ -118,7 +124,7 @@ test("a link that stalls mid-upload is abandoned and retried", { timeout: 150_00
 
 test("a link that always stalls ends in one sentence instead of hanging", { timeout: 300_000 }, async () => {
   const { home, name, files } = await namedSite();
-  const run = await through(() => ({ kind: "stallAfter", bytes: 100_000 }), ["--no-copy", "-n", name, folder(payload())], home);
+  const run = await through(() => ({ kind: "stallAfter", bytes: 100_000 }), ["--no-copy", "-n", name, folder(largerThanSocketBuffers())], home);
   assertPlainSentence(run);
   assert.ok(run.seconds < 240, `gave up in ${run.seconds}s`);
   await assertServes(`https://${name}.${siteDomain}`, files);
@@ -241,4 +247,88 @@ test("the key stays the same when every attempt fails", { timeout: 30_000 }, asy
   const run = await through(() => ({ kind: "respond", status: 503, body: "Service unavailable\n" }), ["--no-copy", folder(payload())], home);
   assert.equal(run.code, 1);
   assert.equal(await keyOf(home), key);
+});
+
+test("a retried private deploy resends exactly the bytes of the first attempt, even when a file changed in between", { timeout: 60_000 }, async () => {
+  const home = newHome();
+  const files = payload();
+  const root = folder(files);
+  const plan = (connection: number): Behavior => {
+    if (connection === 1) return { kind: "dropAfter", bytes: 150_000 };
+    if (connection === 2) writeFileSync(join(root, "data.bin"), randomBytes(300_000));
+    return { kind: "pass" };
+  };
+  const proxy = await faultProxy(plan);
+  try {
+    const run = await runCli(["--no-copy", "-e", root], { home, env: { SITE_URL: proxy.url } });
+    assert.equal(run.code, 0, run.stderr);
+    const first = proxy.received(1);
+    const second = proxy.received(2);
+    assert.ok(first.byteLength >= 150_000, `the first attempt got far: ${first.byteLength}`);
+    assert.ok(second.subarray(0, first.byteLength).equals(first), "the retry repeats the first attempt byte for byte, so no nonce seals two plaintexts");
+  } finally {
+    proxy.close();
+  }
+});
+
+test("a file rebuilt while it is being sent is remembered by the bytes that were sent", { timeout: 90_000 }, async () => {
+  const home = newHome();
+  const original = randomBytes(6_000_000);
+  const root = folder({ "index.html": "<h1>rebuilt</h1>", "data.bin": original });
+  const plan = (connection: number): Behavior => {
+    if (connection > 1) return { kind: "pass" };
+    setTimeout(() => writeFileSync(join(root, "data.bin"), randomBytes(6_000_000)), 2000);
+    return { kind: "throttle", bytesPerSecond: 300_000 };
+  };
+  const proxy = await faultProxy(plan);
+  try {
+    const first = await runCli(["--no-copy", root], { home, env: { SITE_URL: proxy.url } });
+    assert.equal(first.code, 0, first.stderr);
+    writeFileSync(join(root, "data.bin"), original);
+    const second = await runCli(["--no-copy", root], { home, env: { SITE_URL: proxy.url } });
+    assert.equal(second.code, 0, second.stderr);
+    await assertServes(second.stdout.trim(), { "data.bin": original });
+  } finally {
+    proxy.close();
+  }
+});
+
+test("a cut-off answer to site point is a failure, not a blank link", { timeout: 60_000 }, async () => {
+  const { home, name } = await namedSite();
+  const { label } = await deploy(["--no-copy", folder(payload())], { home });
+  const run = await through(() => ({ kind: "cutResponse", status: 200, body: "https://", declaredLength: 64, hang: false }), ["point", name, label], home);
+  assertPlainSentence(run);
+});
+
+test("an answer whose body never arrives ends in one sentence instead of hanging", { timeout: 150_000 }, async () => {
+  const { home } = await namedSite();
+  const run = await through(() => ({ kind: "cutResponse", status: 200, body: '{"names":', declaredLength: 4096, hang: true }), ["ls"], home);
+  assertPlainSentence(run);
+  assert.ok(run.seconds < 120, `gave up in ${run.seconds}s`);
+});
+
+test("a release whose answer is lost is never replayed over a newer claim", { timeout: 150_000 }, async () => {
+  const { home, name } = await namedSite();
+  const next = payload();
+  const { label } = await deploy(["--no-copy", folder(next)], { home });
+  let reclaimed: Promise<Run> | null = null;
+  const plan = (connection: number): Behavior => {
+    if (connection > 1) return { kind: "pass" };
+    return { kind: "forwardThenHold", forwarded: () => (reclaimed = runCli(["point", name, label], { home })) };
+  };
+  const run = await through(plan, ["rm", name], home);
+  assert.ok(reclaimed !== null, "the release reached the server");
+  const claim = await (reclaimed as Promise<Run>);
+  assert.equal(claim.code, 0, claim.stderr);
+  assertPlainSentence(run);
+  await assertServes(`https://${name}.${siteDomain}`, next);
+});
+
+test("a slow link that takes longer than the watchdog to deliver a small upload still deploys", { timeout: 200_000 }, async () => {
+  const home = newHome();
+  const files = { "data.bin": randomBytes(120_000) };
+  const run = await through(() => ({ kind: "throttle", bytesPerSecond: 1500 }), ["--no-copy", folder(files)], home);
+  assert.equal(run.code, 0, run.stderr);
+  assert.ok(run.seconds > 70, `the link really was slow: ${run.seconds}s`);
+  await assertServes(run.stdout.trim(), files);
 });

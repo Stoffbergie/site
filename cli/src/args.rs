@@ -239,8 +239,13 @@ enum Stop {
 }
 
 pub fn parse() -> Command {
-    let arguments: Vec<String> = std::env::args().skip(1).collect();
-    match parse_arguments(&arguments) {
+    let mut arguments = Vec::new();
+    let mut invalid = Vec::new();
+    for argument in std::env::args_os().skip(1) {
+        invalid.push(argument.to_str().is_none());
+        arguments.push(argument.to_string_lossy().into_owned());
+    }
+    match parse_arguments(&arguments, &invalid) {
         Ok(command) => command,
         Err(Stop::Print(text)) => {
             println!("{text}");
@@ -253,21 +258,22 @@ pub fn parse() -> Command {
     }
 }
 
-fn parse_arguments(arguments: &[String]) -> Result<Command, Stop> {
+fn parse_arguments(arguments: &[String], invalid: &[bool]) -> Result<Command, Stop> {
     let mut parser = Parser::new(&ROOT);
     let mut position = 0;
     while position < arguments.len() {
         let argument = &arguments[position];
+        let argument_invalid = invalid[position];
         position += 1;
-        if parser.may_start_subcommand() {
+        if parser.may_start_subcommand() && !argument_invalid {
             if argument == "help" {
                 return Err(help_subcommand(&arguments[position..]));
             }
             if let Some(subcommand) = SUBCOMMANDS.iter().find(|known| known.name == argument) {
-                return parse_subcommand(subcommand, &arguments[position..]);
+                return parse_subcommand(subcommand, &arguments[position..], &invalid[position..]);
             }
         }
-        parser.take(argument)?;
+        parser.take(argument, argument_invalid)?;
     }
     parser.finish()?;
     let mut paths = Vec::new();
@@ -286,11 +292,12 @@ fn parse_arguments(arguments: &[String]) -> Result<Command, Stop> {
 fn parse_subcommand(
     subcommand: &'static Subcommand,
     arguments: &[String],
+    invalid: &[bool],
 ) -> Result<Command, Stop> {
     let mut parser = Parser::new(&subcommand.spec);
     parser.help_text = help_for(subcommand);
-    for argument in arguments {
-        parser.take(argument)?;
+    for (argument, argument_invalid) in arguments.iter().zip(invalid) {
+        parser.take(argument, *argument_invalid)?;
     }
     parser.finish()?;
     let mut values = parser
@@ -384,6 +391,7 @@ struct Parser {
     pending: Option<Pending>,
     state: State,
     trailing: bool,
+    argument_invalid: bool,
     valid_argument_found: bool,
     next_positional: usize,
     flag_values: Vec<Option<String>>,
@@ -400,6 +408,7 @@ impl Parser {
             pending: None,
             state: State::Done,
             trailing: false,
+            argument_invalid: false,
             valid_argument_found: false,
             next_positional: 0,
             flag_values: vec![None; spec.flags.len()],
@@ -419,7 +428,8 @@ impl Parser {
         self.flag_values[flag].clone()
     }
 
-    fn take(&mut self, argument: &str) -> Result<(), Stop> {
+    fn take(&mut self, argument: &str, argument_invalid: bool) -> Result<(), Stop> {
+        self.argument_invalid = argument_invalid;
         if !self.trailing {
             if argument == "--" {
                 self.trailing = true;
@@ -438,6 +448,10 @@ impl Parser {
                     pending.values.push(argument.to_string());
                 }
                 self.state = State::Done;
+                if self.argument_invalid {
+                    self.resolve_pending()?;
+                    return Err(self.invalid_utf8());
+                }
                 return Ok(());
             }
         }
@@ -497,6 +511,9 @@ impl Parser {
     fn take_value(&mut self, flag: usize, attached: Option<&str>) -> Result<(), Stop> {
         if let Some(value) = attached {
             self.react(Id::Flag(flag), vec![value.to_string()])?;
+            if self.argument_invalid {
+                return Err(self.invalid_utf8());
+            }
             self.state = State::Done;
             return Ok(());
         }
@@ -514,6 +531,9 @@ impl Parser {
             let _ = self.resolve_pending();
             return Err(self.overflow(argument));
         };
+        if self.argument_invalid {
+            return Err(self.invalid_utf8());
+        }
         let id = Id::Positional(self.next_positional);
         let continuing = matches!(&self.pending, Some(pending) if pending.id == id);
         if !continuing {
@@ -759,6 +779,13 @@ impl Parser {
             parts.push(shown);
         }
         parts
+    }
+
+    fn invalid_utf8(&self) -> Stop {
+        self.failure(
+            "invalid UTF-8 was detected in one or more arguments",
+            self.spec.usage,
+        )
     }
 
     fn failure(&self, message: &str, usage: &str) -> Stop {
