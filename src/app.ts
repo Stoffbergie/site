@@ -8,6 +8,7 @@ import {
   encryptedName,
   holdsTooMuch,
   isEncrypted,
+  linkSaltOf,
   MAX_DEPLOYS,
   MAX_NAMES,
   namesPointingAt,
@@ -27,7 +28,9 @@ type AppContext = Context<{ Bindings: Env }>;
 type Caller = { kind: "admin" } | { kind: "key"; owner: string } | { kind: "anonymous" } | { kind: "invalid" } | { kind: "blocked" };
 type Claim = { etag: string | null; pointedId: string | null };
 
-type Pointing = "pointed" | "lost" | "holds encrypted";
+type Refusal = "holds encrypted" | "link replaced" | "link changed";
+type Pointing = "pointed" | "lost" | Refusal;
+type LinkHint = { name?: string; linkSalt?: string };
 
 const RELEASED_BY_ADMIN = "admin";
 const POINTER_ATTEMPTS = 5;
@@ -79,11 +82,16 @@ app.get("/list", async (c) => {
   const [names, deploys] = await Promise.all([ownedNames(c.env, caller.owner), ownedDeploys(c.env, caller.owner)]);
   const pointers = await Promise.all(names.map((name) => readPointer(c.env, name)));
   const newestFirst = deploys.sort((left, right) => right.uploaded.getTime() - left.uploaded.getTime());
-  const encryptedIds = new Set(deploys.filter((object) => isEncrypted(object)).map((object) => idOf(object)));
+  const encryptedDeploys = new Map(deploys.filter((object) => isEncrypted(object)).map((object) => [idOf(object), object]));
   return Response.json({
     names: names.map((name, position) => {
       const id = pointers[position]?.id ?? null;
-      return { name, url: siteUrl(name, c.env.SITE_DOMAIN), id, encrypted: id !== null && encryptedIds.has(id) };
+      const url = siteUrl(name, c.env.SITE_DOMAIN);
+      const target = id === null ? undefined : encryptedDeploys.get(id);
+      if (target === undefined) return { name, url, id, encrypted: false };
+      const linkSalt = linkSaltOf(target);
+      if (linkSalt !== null) return { name, url, id, encrypted: true, linkSalt };
+      return { name, url, id, encrypted: true };
     }),
     deploys: newestFirst.map((object) => {
       const id = idOf(object);
@@ -120,6 +128,8 @@ app.put("/names/:name", async (c) => {
   if (!(await writePointer(c.env, name, caller.owner, id, claim.etag))) return text("That name changed while pointing it; try again.\n", 409);
   const headers: Record<string, string> = {};
   if (targetEncrypted) headers["X-Site-Encrypted"] = "true";
+  const targetLinkSalt = linkSaltOf(target);
+  if (targetEncrypted && targetLinkSalt !== null) headers["X-Site-Link-Salt"] = targetLinkSalt;
   return text(`${siteUrl(name, c.env.SITE_DOMAIN)}\n`, 200, headers);
 });
 
@@ -226,6 +236,7 @@ async function deploy(c: AppContext, filename: string): Promise<Response> {
   if (caller.kind === "key") owner = caller.owner;
 
   const name = c.req.query("name");
+  const newLink = c.req.query("newLink") === "1";
   let claim: Claim | null = null;
   if (name !== undefined) {
     if (owner === null) return text("Naming a site needs your key; deploy with the site CLI or send Authorization: Bearer <key>.\n", 401);
@@ -255,14 +266,15 @@ async function deploy(c: AppContext, filename: string): Promise<Response> {
       await removeDeploy(c.env, stored.id, owner);
       return text(`This deploy was encrypted for another link; deploy with site -e -n ${name}.\n`, 400);
     }
-    if (stored.encrypted === null && (await holdsEncrypted(c, claim.pointedId))) {
+    const refusal = await pointingRefusal(c, claim.pointedId, stored.encrypted, newLink);
+    if (refusal !== null) {
       await removeDeploy(c.env, stored.id, owner);
-      return text(`${name} holds an encrypted site; deploy with -e to keep it private, or release it with site rm ${name} first.\n`, 409);
+      return text(refusalMessage(refusal, name), 409);
     }
-    const pointing = await pointName(c, name, owner, stored.id, claim, stored.encrypted !== null);
-    if (pointing === "holds encrypted") {
+    const pointing = await pointName(c, name, owner, stored.id, claim, stored.encrypted, newLink);
+    if (pointing !== "pointed" && pointing !== "lost") {
       await removeDeploy(c.env, stored.id, owner);
-      return text(`${name} holds an encrypted site; deploy with -e to keep it private, or release it with site rm ${name} first.\n`, 409);
+      return text(refusalMessage(pointing, name), 409);
     }
     if (pointing === "lost") {
       await removeDeploy(c.env, stored.id, owner);
@@ -272,16 +284,36 @@ async function deploy(c: AppContext, filename: string): Promise<Response> {
   return deployed(c, stored, name);
 }
 
-async function pointName(c: AppContext, name: string, owner: string, id: string, claim: Claim, encrypted: boolean): Promise<Pointing> {
+async function pointName(c: AppContext, name: string, owner: string, id: string, claim: Claim, hint: LinkHint | null, newLink: boolean): Promise<Pointing> {
   let expected = claim.etag;
   for (let attempt = 0; attempt < POINTER_ATTEMPTS; attempt += 1) {
     if (await writePointer(c.env, name, owner, id, expected)) return "pointed";
     const current = await readPointerRecord(c.env, name);
     if (current === null || current.pointer?.owner !== owner) return "lost";
-    if (!encrypted && (await holdsEncrypted(c, current.pointer.id))) return "holds encrypted";
+    const refusal = await pointingRefusal(c, current.pointer.id, hint, newLink);
+    if (refusal !== null) return refusal;
     expected = current.etag;
   }
   return "lost";
+}
+
+async function pointingRefusal(c: AppContext, pointedId: string | null, hint: LinkHint | null, newLink: boolean): Promise<Refusal | null> {
+  if (pointedId === null) return null;
+  const pointed = await c.env.SITES.head(deployKey(pointedId));
+  if (pointed === null || !isEncrypted(pointed)) return null;
+  if (hint === null) return "holds encrypted";
+  if (newLink) return null;
+  const currentLinkSalt = linkSaltOf(pointed);
+  const linkSalt = hint.linkSalt ?? null;
+  if (linkSalt === currentLinkSalt) return null;
+  if (linkSalt === null) return "link replaced";
+  return "link changed";
+}
+
+function refusalMessage(refusal: Refusal, name: string): string {
+  if (refusal === "link replaced") return `The link for ${name} was replaced with --new-link; update the site CLI and deploy again to keep the new link.\n`;
+  if (refusal === "link changed") return `The link for ${name} changed while this deploy was uploading; deploy again to use the current link.\n`;
+  return `${name} holds an encrypted site; deploy with -e to keep it private, or release it with site rm ${name} first.\n`;
 }
 
 async function prepareClaim(c: AppContext, name: string, owner: string): Promise<Claim | Response> {
@@ -310,11 +342,12 @@ function idOf(object: R2Object): string {
   return object.key.split("/").pop() ?? "";
 }
 
-function linkHintOf(object: R2Object): { name: string } | { linkSalt: string } | null {
+function linkHintOf(object: R2Object): LinkHint | null {
   const name = encryptedName(object);
+  const linkSalt = linkSaltOf(object);
+  if (name !== null && linkSalt !== null) return { name, linkSalt };
   if (name !== null) return { name };
-  const linkSalt = object.customMetadata?.linkSalt;
-  if (linkSalt !== undefined) return { linkSalt };
+  if (linkSalt !== null) return { linkSalt };
   return null;
 }
 

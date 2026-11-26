@@ -12,6 +12,7 @@ const CONTENT_INFO: &[u8] = b"site content v1";
 
 pub enum LinkHint {
     Name(String),
+    SaltedName { name: String, salt: String },
     Salt(String),
 }
 
@@ -26,8 +27,15 @@ pub struct Sealer {
 }
 
 impl LinkKey {
-    pub fn for_name(secret: &str, name: &str) -> Result<LinkKey> {
-        LinkKey::derive(secret, LinkHint::Name(name.to_string()))
+    pub fn for_name(secret: &str, name: &str, link_salt: Option<&str>) -> Result<LinkKey> {
+        let hint = match link_salt {
+            Some(salt) => LinkHint::SaltedName {
+                name: name.to_string(),
+                salt: salt.to_string(),
+            },
+            None => LinkHint::Name(name.to_string()),
+        };
+        LinkKey::derive(secret, hint)
     }
 
     pub fn for_salt(secret: &str, link_salt: &str) -> Result<LinkKey> {
@@ -41,6 +49,7 @@ impl LinkKey {
     fn derive(secret: &str, hint: LinkHint) -> Result<LinkKey> {
         let info = match &hint {
             LinkHint::Name(name) => format!("site link v1 name:{name}"),
+            LinkHint::SaltedName { name, salt } => format!("site link v1 name:{name} salt:{salt}"),
             LinkHint::Salt(salt) => format!("site link v1 deploy:{salt}"),
         };
         let bytes = hkdf(&[], secret.as_bytes(), info.as_bytes())?;

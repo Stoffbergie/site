@@ -639,6 +639,7 @@ fn seal(
 
     let (name, link_salt) = match &link_key.hint {
         LinkHint::Name(name) => (Some(name.clone()), None),
+        LinkHint::SaltedName { name, salt } => (Some(name.clone()), Some(salt.clone())),
         LinkHint::Salt(salt) => (None, Some(salt.clone())),
     };
     let json = serde_json::to_vec(&EncryptedIndex {

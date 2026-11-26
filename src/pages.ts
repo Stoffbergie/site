@@ -51,7 +51,7 @@ function usage(origin: string, domain: string): Section[] {
         [
           "site dist -e",
           "Keep it private",
-          "Encrypt every file, name and type on this machine and print a link with the key after #. Only the full link opens the site, in a browser; the server stores ciphertext and never sees the key. With -n the link stays the same across redeploys. Anyone with the full link can read the site; to cut off access, remove the deploy or release the name. Needs the CLI, not curl."
+          "Encrypt every file, name and type on this machine and print a link with the key after #. Only the full link opens the site, in a browser; the server stores ciphertext and never sees the key. With -n the link stays the same across redeploys. Anyone with the full link can read the site; to cut off access, deploy again with site dist -e -n todo --new-link, which prints a new link and stops the old one opening the name (later deploys keep the new link; site point back at an older deploy brings its link back), and remove the deploys made with the old link. Needs the CLI, not curl."
         ],
         ["site ls", "Your sites", "List your names, the deploy each points at, and your deploys with their age, size and file count."],
         ["site point todo k3m9xq2a", "Roll back", "Point a name at one of your earlier deploys."],

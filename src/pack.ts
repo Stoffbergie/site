@@ -99,7 +99,7 @@ export function checkIndex(json: Uint8Array, dataLength: number): IndexCheck {
 function checkEncryptedIndex(parsed: { encrypted?: unknown; files?: unknown }, dataLength: number): IndexCheck {
   if ("rules" in parsed) return { problem: "An encrypted pack keeps its rules in the sealed index only." };
   const encrypted = checkEncrypted(parsed.encrypted);
-  if (encrypted === null) return { problem: "The pack's encrypted details need a contentSalt and either a name or a linkSalt." };
+  if (encrypted === null) return { problem: "The pack's encrypted details need a contentSalt and a name, a linkSalt or both." };
   const { files } = parsed;
   if (!Array.isArray(files) || files.length < 2) return { problem: "The pack has no files." };
   if (files.length > MAX_FILES + 1) return { problem: `A deploy can hold at most ${MAX_FILES} files.` };
@@ -123,9 +123,13 @@ function checkEncrypted(value: unknown): Encrypted | null {
   if (typeof value !== "object" || value === null) return null;
   const { name, linkSalt, contentSalt } = value as { name?: unknown; linkSalt?: unknown; contentSalt?: unknown };
   if (typeof contentSalt !== "string" || !SALT_PATTERN.test(contentSalt)) return null;
-  if (Object.keys(value).length !== 2) return null;
-  if (typeof name === "string" && nameProblem(name) === null) return { name, contentSalt };
-  if (typeof linkSalt === "string" && SALT_PATTERN.test(linkSalt)) return { linkSalt, contentSalt };
+  const validName = typeof name === "string" && nameProblem(name) === null;
+  const validLinkSalt = typeof linkSalt === "string" && SALT_PATTERN.test(linkSalt);
+  const fields = Object.keys(value).length;
+  if (fields === 3 && validName && validLinkSalt) return { name, linkSalt, contentSalt };
+  if (fields !== 2) return null;
+  if (validName) return { name, contentSalt };
+  if (validLinkSalt) return { linkSalt, contentSalt };
   return null;
 }
 

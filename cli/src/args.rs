@@ -5,6 +5,7 @@ pub enum Command {
         encrypt: bool,
         spa: bool,
         no_copy: bool,
+        new_link: bool,
     },
     Ls,
     Point {
@@ -39,6 +40,7 @@ Options:
   -e, --encrypt      Encrypt the site on this machine; only the printed link, with its key after #, opens it
       --spa          Serve index.html for unknown paths without a file extension
       --no-copy      Leave the clipboard unchanged after deploying
+      --new-link     With -e -n, replace the name's link; the old link stops opening it
   -h, --help         Print help
   -V, --version      Print version
 
@@ -55,6 +57,12 @@ Examples:
   site key                       Print your key, to use on another machine
 
 Set SITE_KEY to use a key without saving it, and SITE_URL to use another server.";
+
+const NAME: usize = 0;
+const ENCRYPT: usize = 1;
+const SPA: usize = 2;
+const NO_COPY: usize = 3;
+const NEW_LINK: usize = 4;
 
 const ROOT_USAGE: &str = "site [OPTIONS] [PATHS]...\n       site <COMMAND>";
 const MORE_INFORMATION: &str = "For more information, try '--help'.";
@@ -128,6 +136,13 @@ const ROOT: Spec = Spec {
             short: None,
             action: Action::Flag,
             shown: "--no-copy",
+            grouped: true,
+        },
+        Flag {
+            long: "new-link",
+            short: None,
+            action: Action::Flag,
+            shown: "--new-link",
             grouped: true,
         },
         HELP_FLAG,
@@ -276,16 +291,18 @@ fn parse_arguments(arguments: &[String], invalid: &[bool]) -> Result<Command, St
         parser.take(argument, argument_invalid)?;
     }
     parser.finish()?;
+    parser.require_with(NEW_LINK, &[NAME, ENCRYPT])?;
     let mut paths = Vec::new();
     if let Some(values) = parser.positional_values.first() {
         paths = values.clone();
     }
     Ok(Command::Deploy {
         paths,
-        name: parser.flag_value(0),
-        encrypt: parser.is_set(1),
-        spa: parser.is_set(2),
-        no_copy: parser.is_set(3),
+        name: parser.flag_value(NAME),
+        encrypt: parser.is_set(ENCRYPT),
+        spa: parser.is_set(SPA),
+        no_copy: parser.is_set(NO_COPY),
+        new_link: parser.is_set(NEW_LINK),
     })
 }
 
@@ -578,6 +595,33 @@ impl Parser {
                 listed.join("\n")
             ),
             &self.usage(&self.matched_arguments()),
+        ))
+    }
+
+    fn require_with(&self, flag: usize, required: &[usize]) -> Result<(), Stop> {
+        if !self.is_set(flag) {
+            return Ok(());
+        }
+        let missing: Vec<usize> = required
+            .iter()
+            .copied()
+            .filter(|needed| !self.is_set(*needed))
+            .collect();
+        if missing.is_empty() {
+            return Ok(());
+        }
+        let listed: Vec<String> = missing
+            .iter()
+            .map(|needed| format!("  {}", self.spec.flags[*needed].shown))
+            .collect();
+        let mut used: Vec<Id> = missing.iter().map(|needed| Id::Flag(*needed)).collect();
+        used.extend(self.matched_arguments());
+        Err(self.failure(
+            &format!(
+                "the following required arguments were not provided:\n{}",
+                listed.join("\n")
+            ),
+            &self.usage(&used),
         ))
     }
 

@@ -43,7 +43,7 @@ Everything goes up in one request and is live when the link prints. The CLI refu
 
 ## Names
 
-`-n todo` points `https://todo.site.stoff.dev` at the new deploy. The first use claims the name for this machine's key; later deploys with the same key move it, and the change is visible on the next load. "That name is taken" means another key owns it: pick another name, do not retry. A name holding an encrypted site refuses a deploy without `-e`; add `-e`, or release the name only if the user wants it public. With `-e -n`, the link stays the same across redeploys. Use a name only when the user wants a stable URL; one-off previews need no name. Every deploy gets a new address, and browsers keep storage, sign-ins and service workers per address, so an app people sign into, install or keep data in needs a name. Sites send open CORS headers and answer preflights, so other origins can load their files.
+`-n todo` points `https://todo.site.stoff.dev` at the new deploy. The first use claims the name for this machine's key; later deploys with the same key move it, and the change is visible on the next load. "That name is taken" means another key owns it: pick another name, do not retry. A name holding an encrypted site refuses a deploy without `-e`; add `-e`, or release the name only if the user wants it public. With `-e -n`, the link stays the same across redeploys. When the user wants to cut off people holding a named private link, deploy with `-e -n <name> --new-link`: it prints a new link, the old one stops opening the name, and later `-e -n` deploys keep the new link. Then remove the deploys made with the old link (`site ls` lists them with their old links), since the old link still opens them at their own addresses. Use a name only when the user wants a stable URL; one-off previews need no name. Every deploy gets a new address, and browsers keep storage, sign-ins and service workers per address, so an app people sign into, install or keep data in needs a name. Sites send open CORS headers and answer preflights, so other origins can load their files.
 
 Names are 3 to 40 lowercase letters, digits and hyphens. Reserved words and brand or credential words (bank, login, paypal and similar) are refused anywhere in the name.
 
@@ -56,7 +56,7 @@ site rm k3m9xq2a
 site rm todo
 ```
 
-`site point` moves a name to one of your earlier deploys; an encrypted name only moves to deploys encrypted for that name. `site ls` prints full links, keys included, for encrypted deploys. `site rm` deletes a deploy, or releases a name; a deploy a name points at is refused until the name moves. Remove deploys you made for a one-off task or for verification when done. Do not remove deploys or names the request does not cover.
+`site point` moves a name to one of your earlier deploys; an encrypted name only moves to deploys encrypted for that name, and moving it back to a deploy from before `--new-link` brings that deploy's old link back. `site ls` prints full links, keys included, for encrypted deploys. `site rm` deletes a deploy, or releases a name; a deploy a name points at is refused until the name moves. Remove deploys you made for a one-off task or for verification when done. Do not remove deploys or names the request does not cover.
 
 A removed deploy may keep serving from the edge cache for up to 5 minutes. A released name stops at once.
 

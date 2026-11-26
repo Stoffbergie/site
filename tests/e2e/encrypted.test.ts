@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { test } from "vite-plus/test";
-import { deploy, folder, hostOf, idUrl, keyOf, newHome, runCli, uniqueName, upload, visit } from "../helpers/site";
+import { apiKeyOf, deploy, folder, hostOf, idUrl, keyOf, newHome, runCli, uniqueName, upload, visit } from "../helpers/site";
 
 const linkShape = /^https:\/\/([a-z0-9-]+)\.site\.localhost\/#[A-Za-z0-9_-]{43}$/;
 
@@ -82,6 +82,75 @@ test("a named encrypted link is the same after every redeploy and on a second ma
   const unnamed = await deploy(["--no-copy", "-e", folder({ "index.html": "x" })], { home: laptop });
   const again = await deploy(["--no-copy", "-e", folder({ "index.html": "x" })], { home: laptop });
   assert.notEqual(unnamed.url.split("#")[1], again.url.split("#")[1], "unnamed deploys get their own keys");
+});
+
+test("--new-link replaces the link of a named private site, later deploys keep it, and point brings an earlier link back", async () => {
+  const laptop = newHome();
+  const name = uniqueName("relinked");
+  const first = await deploy(["--no-copy", "-e", "-n", name, folder({ "index.html": "one" })], { home: laptop });
+  const firstId = /https:\/\/([a-z0-9]{8})\./.exec(first.run.stderr)?.[1] as string;
+
+  const replaced = await deploy(["--no-copy", "-e", "-n", name, "--new-link", folder({ "index.html": "two" })], { home: laptop });
+  assert.match(replaced.url, new RegExp(`^https://${name}\\.site\\.localhost/#[A-Za-z0-9_-]{43}$`));
+  assert.notEqual(replaced.url, first.url);
+  const replacedId = /https:\/\/([a-z0-9]{8})\./.exec(replaced.run.stderr)?.[1] as string;
+  const meta = JSON.parse((await visit(hostOf(replaced.url), "/__site/meta")).text) as { encrypted: Record<string, string> };
+  assert.deepEqual(Object.keys(meta.encrypted), ["name", "linkSalt", "contentSalt"]);
+
+  const kept = await deploy(["--no-copy", "-e", "-n", name, folder({ "index.html": "three" })], { home: laptop });
+  assert.equal(kept.url, replaced.url);
+  const desktop = newHome();
+  await runCli(["key", await keyOf(laptop)], { home: desktop });
+  const elsewhere = await deploy(["--no-copy", "-e", "-n", name, folder({ "index.html": "four" })], { home: desktop });
+  assert.equal(elsewhere.url, replaced.url);
+
+  const listed = await runCli(["ls"], { home: laptop });
+  assert.equal(listed.code, 0, listed.stderr);
+  const lines = listed.stdout.split("\n");
+  assert.ok(
+    lines.some((line) => line.startsWith(`${replaced.url} `) && line.endsWith("encrypted")),
+    listed.stdout
+  );
+  assert.ok(
+    lines.some((line) => line.startsWith(`${idUrl(replacedId)}/#${replaced.url.split("#")[1]} `)),
+    listed.stdout
+  );
+  assert.ok(
+    lines.some((line) => line.startsWith(`${idUrl(firstId)}/#${first.url.split("#")[1]} `)),
+    listed.stdout
+  );
+  assert.equal(listed.stdout.includes(first.url), false, "the name is never listed with its old link");
+
+  const packFor = (hint: Record<string, string>) => {
+    const index = Buffer.from(
+      JSON.stringify({
+        encrypted: { ...hint, contentSalt: "A".repeat(22) },
+        files: [
+          { offset: 0, length: 20 },
+          { offset: 20, length: 20 }
+        ]
+      })
+    );
+    const length = Buffer.alloc(4);
+    length.writeUInt32BE(index.byteLength);
+    return Buffer.concat([Buffer.from("SITEPACK1\n"), length, index, randomBytes(40)]);
+  };
+  const authorization = `Bearer ${await apiKeyOf(laptop)}`;
+  const refused = await upload(`/?name=${name}`, packFor({ name }), { authorization }, "POST");
+  assert.equal(refused.status, 409);
+  assert.equal(refused.text, `The link for ${name} was replaced with --new-link; update the site CLI and deploy again to keep the new link.\n`);
+  const stale = await upload(`/?name=${name}`, packFor({ name, linkSalt: "B".repeat(22) }), { authorization }, "POST");
+  assert.equal(stale.status, 409);
+  assert.equal(stale.text, `The link for ${name} changed while this deploy was uploading; deploy again to use the current link.\n`);
+  const after = await runCli(["ls"], { home: laptop });
+  assert.equal(after.stdout.split("\n").filter((line) => line.includes("encrypted")).length, lines.filter((line) => line.includes("encrypted")).length, "the refused deploy is not kept");
+
+  const back = await runCli(["point", name, firstId], { home: laptop });
+  assert.equal(back.code, 0, back.stderr);
+  assert.equal(back.stdout, `${first.url}\n`);
+  const forward = await runCli(["point", name, replacedId], { home: laptop });
+  assert.equal(forward.code, 0, forward.stderr);
+  assert.equal(forward.stdout, `${replaced.url}\n`);
 });
 
 test("a name holding an encrypted site refuses a public deploy, and a public name can become encrypted", async () => {

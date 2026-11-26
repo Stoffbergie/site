@@ -249,3 +249,30 @@ test("the stored key is deleted once the name points at a public deploy", async 
   assert.equal(await page.evaluate("navigator.serviceWorker.getRegistration().then((registration) => registration === undefined)"), true);
   await page.context().close();
 });
+
+test("after --new-link the old link shows the wrong-key page and forgets the stored key, and the new link opens the site", async () => {
+  const home = newHome();
+  const name = uniqueName("relink");
+  const old = await deploy(["--no-copy", "-e", "-n", name, folder({ "index.html": "<h1>Before</h1>" })], { home });
+  const origin = new URL(browserUrl(old.url)).origin;
+  const visitor = await newPage();
+  await visitor.goto(browserUrl(old.url));
+  await waitForHeading(visitor, "Before");
+
+  const replaced = await deploy(["--no-copy", "-e", "-n", name, "--new-link", folder({ "index.html": "<h1>After</h1>" })], { home });
+  await visitor.goto("about:blank");
+  await visitor.goto(browserUrl(old.url));
+  await visitor.waitForSelector("text=This key does not open this site");
+  assert.equal(visitor.url(), `${origin}/`);
+  assert.equal(await storedKeyEntry(visitor), "missing");
+  await visitor.goto(`${origin}/`);
+  await visitor.waitForSelector("text=This site is private");
+  await visitor.goto(browserUrl(replaced.url));
+  await waitForHeading(visitor, "After");
+  await visitor.context().close();
+
+  const stranger = await newPage();
+  await stranger.goto(browserUrl(old.url));
+  await stranger.waitForSelector("text=This key does not open this site");
+  await stranger.context().close();
+});

@@ -1,7 +1,23 @@
 import { fileListPage } from "../pages";
 import { decodePath, GENERATED_ICON_PATHS, iconShapeAt, isReserved, parseRange, redirectLocation, type ByteRange, type IconShape, type Target } from "../resolve";
 import { applyHeaderRules, checkRules, isConfigFile, route, type SiteRules } from "../rules";
-import { CHUNK_SIZE, chunkCount, fetchEntry, fetchMeta, forgetKey, NotPrivate, openChunk, openDeploy, readKey, SEALED_CHUNK_SIZE, TAG_SIZE, WrongKey, type Meta, type Site } from "./site";
+import {
+  CHUNK_SIZE,
+  chunkCount,
+  fetchEntry,
+  fetchMeta,
+  forgetKey,
+  forgetKeyIfStored,
+  NotPrivate,
+  openChunk,
+  openDeploy,
+  readKey,
+  SEALED_CHUNK_SIZE,
+  TAG_SIZE,
+  WrongKey,
+  type Meta,
+  type Site
+} from "./site";
 
 type ExtendableEvent = Event & { waitUntil(promise: Promise<unknown>): void };
 type FetchEvent = ExtendableEvent & { readonly request: Request; respondWith(response: Promise<Response>): void };
@@ -143,7 +159,10 @@ async function openFor(navigating: boolean): Promise<Opened> {
     current = { ...site, siteRules: validRules(site.rules) };
   } catch (error) {
     current = null;
-    if (error instanceof WrongKey) return { kind: "locked" };
+    if (error instanceof WrongKey) {
+      await forgetKeyIfStored(key);
+      return { kind: "locked" };
+    }
     throw error;
   }
   return { kind: "site", site: current };
