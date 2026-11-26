@@ -63,7 +63,11 @@ function usage(origin: string, domain: string): Section[] {
       rows: [
         ["site index.html style.css", "Loose files", "Deploy files from different places; each lands at the root under its filename."],
         ["cat page.html | site -", "From a pipe", "Deploy stdin as index.html."],
-        ["site dist --spa", "Single-page apps", "Serve index.html for unknown paths without a file extension, so client-side routes work."],
+        [
+          "site dist --spa",
+          "Single-page apps",
+          "Serve index.html for client-side routes, any path not ending in a file extension. Apps whose only page is index.html, with no 404.html, get this without the flag."
+        ],
         ["site key", "Your key", "Print the key that owns your deploys and names. It is made the first time you deploy and kept on this machine."],
         ["site key <key>", "Another machine", "Save your key on a second machine to deploy, list and remove the same sites from there."]
       ]
