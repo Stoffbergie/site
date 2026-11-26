@@ -349,3 +349,9 @@ test("a name repointed while another update races it never ends on a deleted dep
     await pointAt(kept);
   }
 });
+
+test("a cut-off answer to site rm is a failure, not a release", { timeout: 60_000 }, async () => {
+  const { home, name } = await namedSite();
+  const run = await through(() => ({ kind: "cutResponse", status: 200, body: "rel", declaredLength: 64, hang: false }), ["rm", name], home);
+  assertPlainSentence(run);
+});

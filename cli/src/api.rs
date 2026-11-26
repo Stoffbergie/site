@@ -351,7 +351,7 @@ fn remove(key: &str, url: String) -> Result<()> {
             .header("Authorization", &authorization)
             .call()
     })?;
-    refused_or(response)?;
+    answer(refused_or(response)?)?;
     Ok(())
 }
 
