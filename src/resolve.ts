@@ -40,6 +40,9 @@ export function resolve(listing: Listing, pathname: string): Target {
     return { kind: "list" };
   }
 
+  const underBasePath = basePathAsset(files, relative, exactly);
+  if (underBasePath !== undefined) return { kind: "file", number: underBasePath, status: 200 };
+
   const looksLikeRoute = !FILE_EXTENSION.test(relative);
   const home = byPath.get("index.html");
   if (listing.spa && looksLikeRoute && home !== undefined) return { kind: "file", number: home, status: 200 };
@@ -118,6 +121,17 @@ export function parseRange(header: string, size: number): ByteRange | null {
   if (endText !== "") end = Math.min(Number(endText), size - 1);
   if (start > end) return null;
   return { offset: start, length: end - start + 1 };
+}
+
+function basePathAsset(files: ListedFile[], relative: string, lookup: (path: string) => number | undefined): number | undefined {
+  const separator = relative.indexOf("/");
+  if (separator === -1) return undefined;
+  const firstSegment = relative.slice(0, separator);
+  const remainder = relative.slice(separator + 1);
+  if (!remainder.includes("/")) return undefined;
+  const isDeployedName = files.some((file) => file.path.split("/")[0] === firstSegment);
+  if (isDeployedName) return undefined;
+  return lookup(remainder);
 }
 
 function isSinglePageApp(files: ListedFile[]): boolean {
