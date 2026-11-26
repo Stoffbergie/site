@@ -3,6 +3,7 @@ use clap::{Parser, Subcommand};
 use crypto::LinkKey;
 
 mod api;
+mod charset;
 mod config;
 mod crypto;
 mod dotfiles;

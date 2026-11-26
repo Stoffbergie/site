@@ -1,3 +1,4 @@
+use crate::charset::{fit_charset, fit_charset_streamed};
 use crate::crypto::{self, LinkHint, LinkKey, Sealer};
 use crate::dotfiles::{self, DotName};
 use crate::types;
@@ -112,12 +113,14 @@ impl Pack {
                     continue;
                 }
                 Unpacked::Decoded(content_type, decoded) => {
+                    let content_type = fit_charset(content_type, &decoded);
                     let (body, gzip) = smaller(decoded, true);
                     (content_type, body, gzip)
                 }
                 Unpacked::AsIs => {
                     let content_type = content_type(&path, &source)?;
-                    let (body, gzip) = prepare(source, compressible(&path))?;
+                    let (body, gzip, content_type) =
+                        prepare(source, compressible(&path), content_type)?;
                     (content_type, body, gzip)
                 }
             };
@@ -346,27 +349,38 @@ fn walk(
     Ok(())
 }
 
-fn prepare(source: Source, compress: bool) -> Result<(Plain, bool)> {
+fn prepare(
+    source: Source,
+    compress: bool,
+    content_type: &'static str,
+) -> Result<(Plain, bool, &'static str)> {
     let path = match source {
         Source::Stdin => {
             let mut bytes = Vec::new();
             std::io::stdin().read_to_end(&mut bytes)?;
-            return Ok(smaller(bytes, compress));
+            let content_type = fit_charset(content_type, &bytes);
+            let (body, gzip) = smaller(bytes, compress);
+            return Ok((body, gzip, content_type));
         }
         Source::Path(path) => path,
     };
     if compress {
         let bytes =
             std::fs::read(&path).with_context(|| format!("could not read {}", path.display()))?;
-        return Ok(smaller(bytes, true));
+        let content_type = fit_charset(content_type, &bytes);
+        let (body, gzip) = smaller(bytes, compress);
+        return Ok((body, gzip, content_type));
     }
+    let file = File::open(&path).with_context(|| format!("could not read {}", path.display()))?;
+    let content_type = fit_charset_streamed(content_type, file)
+        .with_context(|| format!("could not read {}", path.display()))?;
     let length = std::fs::metadata(&path)?.len();
     let file = Plain::File {
         path,
         length,
         open: None,
     };
-    Ok((file, false))
+    Ok((file, false, content_type))
 }
 
 fn smaller(bytes: Vec<u8>, compress: bool) -> (Plain, bool) {
