@@ -65,7 +65,7 @@ Download a binary for macOS, Linux or Windows from [Releases](https://github.com
 | Roll a name back                | `site point todo k3m9xq2a`         |
 | Remove a deploy or a name       | `site rm k3m9xq2a`, `site rm todo` |
 
-Links go to stdout; details go to stderr. Names starting with a dot stay private, so `.env`, `.git`, `.npmrc` and editor folders never deploy; `.well-known/` does, with the right types for extensionless files like `apple-app-site-association` and `webfinger`. Anything left out other than junk like `.git` and `.DS_Store` is named in one line. Symlinks and `node_modules` are left out too. On a private site `.well-known/` files open only in a browser with the link, so apps and other services cannot read them.
+Links go to stdout; details go to stderr. Names starting with a dot stay private, so `.env`, `.git`, `.npmrc` and editor folders never deploy; `.well-known/` does, with the right types for extensionless files like `apple-app-site-association` and `webfinger`. Anything left out other than junk like `.git` and `.DS_Store` is named in one line, up to eight names and then a count. The rule covers what a folder walk finds and the name of each file you pass; a folder or file you name yourself is deployed as you asked, and a symlink you name is followed. Symlinks and `node_modules` are left out too. On a private site `.well-known/` files open only in a browser with the link, so apps and other services cannot read them.
 
 ## Names
 
