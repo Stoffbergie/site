@@ -114,7 +114,8 @@ export async function storeDeploy(env: Env, request: Request, filename: string, 
   const size = index.files.reduce((sum, file) => sum + file.length, 0);
   let files = index.files.length;
   if (index.encrypted) files -= 1;
-  const metadata: Record<string, string> = { files: String(files), size: String(size), ...linkHint(index.encrypted) };
+  const listed: Record<string, string> = { files: String(files), size: String(size), ...linkHint(index.encrypted) };
+  const metadata: Record<string, string> = { ...listed };
   if (owner) metadata.owner = owner;
   if (writtenByWorker) Object.assign(metadata, WORKER_INDEX);
 
@@ -129,12 +130,8 @@ export async function storeDeploy(env: Env, request: Request, filename: string, 
     return malformed("The upload was shorter or longer than it said; deploy again.");
   }
   if (!written) throw new Error(`Deploy id ${id} was already taken`);
+  if (owner) await env.SITES.put(ownedDeployKey(owner, id), "", { customMetadata: listed });
   return { stored: { id, files, size, encrypted: index.encrypted ?? null } };
-}
-
-export async function markOwnedDeploy(env: Env, owner: string, stored: Stored): Promise<void> {
-  const listed = { files: String(stored.files), size: String(stored.size), ...linkHint(stored.encrypted ?? undefined) };
-  await env.SITES.put(ownedDeployKey(owner, stored.id), "", { customMetadata: listed });
 }
 
 function linkHint(encrypted: Encrypted | undefined): Record<string, string> {
@@ -230,11 +227,11 @@ export async function readPointer(env: Env, name: string): Promise<Pointer | nul
   return record.pointer;
 }
 
-export async function writePointer(env: Env, name: string, owner: string, id: string, previousEtag: string | null): Promise<string | null> {
+export async function writePointer(env: Env, name: string, owner: string, id: string, previousEtag: string | null): Promise<boolean> {
   const written = await env.SITES.put(nameKey(name), crypto.randomUUID(), { customMetadata: { id, owner }, onlyIf: versionCondition(previousEtag) });
-  if (!written) return null;
+  if (!written) return false;
   await env.SITES.put(ownedNameKey(owner, name), "");
-  return written.etag;
+  return true;
 }
 
 export async function releasePointer(env: Env, name: string, owner: string, releasedBy: string, previousEtag: string): Promise<boolean> {

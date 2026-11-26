@@ -334,21 +334,36 @@ test("a slow link that takes longer than the watchdog to deliver a small upload 
   await assertServes(run.stdout.trim(), files);
 });
 
-test("a name repointed while another update races it never ends on a deleted deploy", { timeout: 120_000 }, async () => {
+test("a point whose name changed underneath it fails cleanly and leaves the newer pointer", { timeout: 120_000 }, async () => {
   const home = newHome();
   const key = await apiKeyOf(home);
-  const name = uniqueName("gone");
-  const { label: kept } = await deploy(["--no-copy", "-n", name, folder({ "index.html": "<h1>kept</h1>" })], { home });
+  const name = uniqueName("point");
+  await deploy(["--no-copy", "-n", name, folder({ "index.html": "<h1>first</h1>" })], { home });
   const authorization = `Bearer ${key}`;
-  const pointAt = (id: string) => fetch(`${baseUrl}/names/${name}`, { method: "PUT", headers: { authorization, "content-type": "application/json" }, body: JSON.stringify({ id }) });
-  for (let round = 0; round < 40; round += 1) {
-    const stored = await upload("/index.html", `<h1>doomed ${round}</h1>`, { authorization, accept: "application/json" });
-    const doomed = (JSON.parse(stored.text) as { id: string }).id;
-    await Promise.all([pointAt(doomed), pointAt(kept), fetch(`${baseUrl}/deploys/${doomed}`, { method: "DELETE", headers: { authorization } })]);
-    const served = await visit(`https://${name}.${siteDomain}`, "/");
-    assert.equal(served.status, 200, `round ${round}: the name serves a deploy that exists`);
-    await pointAt(kept);
+  const deploys: string[] = [];
+  for (let number = 0; number < 6; number += 1) {
+    const stored = await upload("/index.html", `<h1>deploy ${number}</h1>`, { authorization, accept: "application/json" });
+    deploys.push((JSON.parse(stored.text) as { id: string }).id);
   }
+  const pointAt = async (id: string) => {
+    const response = await fetch(`${baseUrl}/names/${name}`, { method: "PUT", headers: { authorization, "content-type": "application/json" }, body: JSON.stringify({ id }) });
+    return { id, status: response.status, text: await response.text() };
+  };
+  let refused = 0;
+  for (let round = 0; round < 20 && refused === 0; round += 1) {
+    const answers = await Promise.all(deploys.map(pointAt));
+    const pointed = answers.filter((answer) => answer.status === 200).map((answer) => answer.id);
+    for (const answer of answers.filter((each) => each.status !== 200)) {
+      assert.equal(answer.status, 409);
+      assert.equal(answer.text, "That name changed while pointing it; try again.\n");
+      refused += 1;
+    }
+    const served = await visit(`https://${name}.${siteDomain}`, "/");
+    assert.equal(served.status, 200);
+    const servedId = deploys[deploys.findIndex((_, number) => served.text === `<h1>deploy ${number}</h1>`)];
+    assert.ok(pointed.includes(servedId), `round ${round}: the name stays on a deploy whose point succeeded`);
+  }
+  assert.ok(refused > 0, "racing points were refused at least once");
 });
 
 test("a cut-off answer to site rm is a failure, not a release", { timeout: 60_000 }, async () => {
