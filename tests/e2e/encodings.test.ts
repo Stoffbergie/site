@@ -1,10 +1,11 @@
 import { strict as assert } from "node:assert";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
+import { closeSync, openSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { gzipSync } from "node:zlib";
 import { chromium, type Browser, type Page } from "playwright";
-import { afterAll, beforeAll, test } from "vite-plus/test";
+import { afterAll, beforeAll, inject, test } from "vite-plus/test";
 import { baseUrl, browserUrl, deploy, folder, newHome, uniqueName, visit } from "../helpers/site";
 
 function ascii(text: string): Buffer {
@@ -98,7 +99,7 @@ const supporting: Record<string, Buffer> = {
   "shift-jis.js": Buffer.concat([ascii(`document.body.append(Object.assign(document.createElement("p"), { textContent: "`), japanese, ascii(`" }));`)]),
   "utf-8.js": Buffer.from(`document.body.append(Object.assign(document.createElement("p"), { textContent: "✓ from a script" }));`),
   "utf-8.css": Buffer.from(`p:first-of-type::after { content: "✓" }`),
-  "spaced-charset.css": Buffer.from(`@charset "utf-8" ;\np:first-of-type::after { content: "✓"; }`),
+  "spaced-charset.css": Buffer.from(`@charset "iso-8859-1" ;\np:first-of-type::after { content: "✓"; }`),
   "latin-1.css": Buffer.concat([ascii(`@charset "iso-8859-1";\np:first-of-type::after { content: "`), windows1252("é"), ascii(`" }`)])
 };
 
@@ -250,4 +251,66 @@ test("legacy text is sent without a charset for table-only, extensionless, .well
     const reply = await visit(single, `/${name}`);
     assert.equal(reply.headers["content-type"], type, `${name} sent with curl has its type`);
   }
+});
+
+const megabyte = 1024 * 1024;
+
+type MeasuredRun = { code: number | null; stdout: string; stderr: string; peakBytes: number };
+
+function runMeasured(args: string[]): Promise<MeasuredRun> {
+  const home = newHome();
+  const env: Record<string, string> = { ...(process.env as Record<string, string>), SITE_URL: baseUrl, HOME: home, XDG_CONFIG_HOME: home, NO_COLOR: "1" };
+  delete env.SITE_KEY;
+  const timeFlag = process.platform === "darwin" ? "-l" : "-v";
+  const child = spawn("/usr/bin/time", [timeFlag, inject("cli"), ...args], { env });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (chunk: Buffer) => (stdout += chunk.toString()));
+  child.stderr.on("data", (chunk: Buffer) => (stderr += chunk.toString()));
+  child.stdin.end();
+  return new Promise((resolve) =>
+    child.on("close", (code) => {
+      const bytesOnMac = /(\d+)\s+maximum resident set size/.exec(stderr);
+      const kilobytesOnLinux = /Maximum resident set size \(kbytes\): (\d+)/.exec(stderr);
+      let peakBytes = Number.NaN;
+      if (bytesOnMac) peakBytes = Number(bytesOnMac[1]);
+      if (kilobytesOnLinux) peakBytes = Number(kilobytesOnLinux[1]) * 1024;
+      resolve({ code, stdout, stderr, peakBytes });
+    })
+  );
+}
+
+function textAcrossChunks(): Buffer {
+  const chunk = 64 * 1024;
+  return Buffer.concat([
+    Buffer.from("Notes ".padEnd(chunk - 1, "a")),
+    Buffer.from("€"),
+    Buffer.from("b".repeat(chunk - 4)),
+    Buffer.from("😀"),
+    Buffer.from("c".repeat(chunk * 2 - 2)),
+    Buffer.from("ë\n")
+  ]);
+}
+
+test("large extensionless files are judged without being read whole and keep the right charset", async () => {
+  const header = Buffer.from("FIRMWARE IMAGE v1 ".repeat(40).slice(0, 512));
+  const notes = textAcrossChunks();
+  const root = folder({ "index.html": "<h1>Downloads</h1>", notes });
+  const firmware = openSync(join(root, "firmware"), "w");
+  writeSync(firmware, header);
+  const binary = Buffer.alloc(megabyte, 0xff);
+  for (let written = 0; written < 80; written++) writeSync(firmware, binary);
+  closeSync(firmware);
+
+  const run = await runMeasured(["--no-copy", root]);
+  assert.equal(run.code, 0, run.stderr);
+  assert.ok(run.peakBytes < 40 * megabyte, `peak memory was ${run.peakBytes} bytes`);
+  const url = run.stdout.trim();
+
+  const start = await visit(url, "/firmware", { headers: { range: "bytes=0-1023" } });
+  assert.equal(start.headers["content-type"], "text/plain");
+  assert.deepEqual(start.body, Buffer.concat([header, binary.subarray(0, 512)]));
+  const text = await visit(url, "/notes");
+  assert.equal(text.headers["content-type"], "text/plain; charset=utf-8");
+  assert.deepEqual(text.body, notes);
 });

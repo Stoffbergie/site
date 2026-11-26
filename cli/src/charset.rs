@@ -1,6 +1,9 @@
+use std::io::Read;
+
 const UTF8_PARAMETER: &str = "; charset=utf-8";
 const UTF8_BOM: &[u8] = &[0xef, 0xbb, 0xbf];
 const PRESCAN_BYTES: usize = 1024;
+const READ_CHUNK_BYTES: usize = 64 * 1024;
 const UTF8_LABELS: &[&str] = &[
     "unicode-1-1-utf-8",
     "unicode11utf8",
@@ -258,10 +261,6 @@ enum MetaCharset {
     Known(Charset),
 }
 
-pub fn names_utf8(content_type: &str) -> bool {
-    content_type.ends_with(UTF8_PARAMETER)
-}
-
 pub fn fit_charset(content_type: &'static str, bytes: &[u8]) -> &'static str {
     let Some(essence) = content_type.strip_suffix(UTF8_PARAMETER) else {
         return content_type;
@@ -273,21 +272,58 @@ pub fn fit_charset(content_type: &'static str, bytes: &[u8]) -> &'static str {
     }
 }
 
-fn reads_as_utf8(essence: &str, bytes: &[u8]) -> bool {
-    if bytes.starts_with(UTF8_BOM) {
-        return std::str::from_utf8(&bytes[UTF8_BOM.len()..]).is_ok();
+pub fn fit_charset_streamed(
+    content_type: &'static str,
+    mut reader: impl Read,
+) -> std::io::Result<&'static str> {
+    let Some(essence) = content_type.strip_suffix(UTF8_PARAMETER) else {
+        return Ok(content_type);
+    };
+    let mut head = Vec::with_capacity(PRESCAN_BYTES);
+    let mut unchecked = Vec::new();
+    let mut chunk = vec![0u8; READ_CHUNK_BYTES];
+    loop {
+        let count = reader.read(&mut chunk)?;
+        if count == 0 {
+            break;
+        }
+        let read = &chunk[..count];
+        let head_room = PRESCAN_BYTES - head.len();
+        head.extend_from_slice(&read[..count.min(head_room)]);
+        unchecked.extend_from_slice(read);
+        match std::str::from_utf8(&unchecked) {
+            Ok(_) => unchecked.clear(),
+            Err(error) if error.error_len().is_none() => {
+                unchecked.drain(..error.valid_up_to());
+            }
+            Err(_) => return Ok(essence),
+        }
     }
+    if !unchecked.is_empty() || declares_other_encoding(essence, &head) {
+        return Ok(essence);
+    }
+    Ok(content_type)
+}
+
+fn reads_as_utf8(essence: &str, bytes: &[u8]) -> bool {
     if std::str::from_utf8(bytes).is_err() {
         return false;
     }
     let head = &bytes[..bytes.len().min(PRESCAN_BYTES)];
+    !declares_other_encoding(essence, head)
+}
+
+fn declares_other_encoding(essence: &str, head: &[u8]) -> bool {
+    if head.starts_with(UTF8_BOM) {
+        return false;
+    }
     let declared = match essence {
         "text/html" => html_declaration(head),
         "text/css" => css_declaration(head),
         _ if is_xml(essence) => xml_declaration(head),
         _ => None,
     };
-    declared != Some(Charset::Other)
+    declared == Some(Charset::Other)
 }
 
 fn is_xml(essence: &str) -> bool {

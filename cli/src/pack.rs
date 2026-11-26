@@ -1,4 +1,4 @@
-use crate::charset::{fit_charset, names_utf8};
+use crate::charset::{fit_charset, fit_charset_streamed};
 use crate::crypto::{self, LinkHint, LinkKey, Sealer};
 use crate::dotfiles::{self, DotName};
 use crate::types;
@@ -364,13 +364,16 @@ fn prepare(
         }
         Source::Path(path) => path,
     };
-    if compress || names_utf8(content_type) {
+    if compress {
         let bytes =
             std::fs::read(&path).with_context(|| format!("could not read {}", path.display()))?;
         let content_type = fit_charset(content_type, &bytes);
         let (body, gzip) = smaller(bytes, compress);
         return Ok((body, gzip, content_type));
     }
+    let file = File::open(&path).with_context(|| format!("could not read {}", path.display()))?;
+    let content_type = fit_charset_streamed(content_type, file)
+        .with_context(|| format!("could not read {}", path.display()))?;
     let length = std::fs::metadata(&path)?.len();
     let file = Plain::File {
         path,
