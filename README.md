@@ -17,6 +17,7 @@
   <a href="#start-deploying">Get started</a> ·
   <a href="#everyday-commands">Commands</a> ·
   <a href="#names">Names</a> ·
+  <a href="#keep-a-site-private">Private sites</a> ·
   <a href="https://site.stoff.dev">Website</a> ·
   <a href="SKILL.md">For agents</a>
 </p>
@@ -56,6 +57,7 @@ Download a binary for macOS, Linux or Windows from [Releases](https://github.com
 | ------------------------------- | ---------------------------------- |
 | Deploy a folder                 | `site dist`                        |
 | Deploy it under a name          | `site dist -n todo`                |
+| Keep it private                 | `site dist -e`                     |
 | Deploy loose files at the root  | `site index.html style.css`        |
 | Deploy command output as a page | `cat page.html \| site -`          |
 | A single-page app               | `site dist --spa`                  |
@@ -84,6 +86,33 @@ A deploy a name points at can't be removed until the name moves or is released w
 
 Names are 3 to 40 lowercase letters, digits and hyphens. Each key holds up to 20.
 
+## Keep a site private
+
+```console
+$ site dist -e
+3 files · 9.1 KB
+https://k3m9xq2a.site.stoff.dev/#4f0cX2…
+```
+
+`-e` encrypts every file, path and content type on your machine before upload. The key is in the link after `#`, which browsers never send to a server, so the server only ever stores ciphertext. Open the full link in a browser and the site works as usual, pages, images, clean URLs, `--spa` and media seeking included; it is decrypted in the browser.
+
+Name it and the link stays the same across redeploys:
+
+```console
+$ site dist -e -n todo
+https://todo.site.stoff.dev/#9b1e…
+```
+
+Links are derived from your key, so `site ls` prints them again on any machine with that key. Nothing new to save.
+
+What it protects and what it doesn't:
+
+- Anyone with the full link can read the site. Share it like a password.
+- The server, and anyone with only the URL before `#`, cannot. They get a page saying the site is private.
+- To take access away, remove the deploy with `site rm`, or release the name. There is no other revocation.
+- A name holding an encrypted site never turns public by accident: deploying to it without `-e` is refused.
+- It needs JavaScript and service workers, so it opens in current browsers but not in private windows that turn service workers off. Encrypting needs the CLI; there is no encrypted deploy through curl.
+
 ## Your key
 
 There's no login. The first deploy makes a random key on your machine, and that key owns your deploys and names. Only a hash of it reaches the server's storage.
@@ -106,7 +135,7 @@ site key site_…          # on the second
 | `/about`      | `about.html`, or a redirect to `/about/`   |
 | Anything else | `404.html` with status 404, or a plain 404 |
 
-With `--spa`, unknown paths without a file extension serve `index.html`. With no `index.html`, a lone HTML file is the page at `/`, a single file is served at `/` and under its name, and anything else shows a file list.
+Encrypted sites follow the same rules, applied in the browser. With `--spa`, unknown paths without a file extension serve `index.html`. With no `index.html`, a lone HTML file is the page at `/`, a single file is served at `/` and under its name, and anything else shows a file list.
 
 Text files are compressed before upload and served compressed. Other files support byte ranges. Deploy URLs are cached by browsers for a year, since a deploy never changes; named URLs revalidate on every load.
 
