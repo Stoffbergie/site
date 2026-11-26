@@ -27,17 +27,23 @@ type Pointing = "pointed" | "lost" | "holds encrypted";
 
 const RELEASED_BY_ADMIN = "admin";
 const POINTER_ATTEMPTS = 5;
+const SECURITY_HEADERS: Record<string, string> = {
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "DENY",
+  "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+};
 
 export const app = new Hono<{ Bindings: Env }>();
 
 app.use("*", async (c, next) => {
   await next();
   if (!c.res.headers.has("Cache-Control")) c.res.headers.set("Cache-Control", "no-store");
+  for (const [name, value] of Object.entries(SECURITY_HEADERS)) c.res.headers.set(name, value);
 });
 
 app.onError((error) => {
   console.error(error);
-  return text("Something went wrong; try again.\n", 500);
+  return text("Something went wrong; try again.\n", 500, SECURITY_HEADERS);
 });
 
 app.get("/", (c) => {
@@ -148,7 +154,7 @@ app.put("/:filename", (c) => deploy(c, c.req.param("filename")));
 app.notFound(async (c) => {
   if (c.req.method === "GET" || c.req.method === "HEAD") {
     const asset = await c.env.ASSETS.fetch(c.req.raw);
-    if (asset.status !== 404) return asset;
+    if (asset.status !== 404) return new Response(asset.body, asset);
   }
   if (wantsHtml(c.req.raw.headers)) return c.html(notFoundPage(), 404);
   return text("Not found\n", 404);
