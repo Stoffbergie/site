@@ -5,7 +5,7 @@ description: Deploys static files to a live URL with the site CLI, including nam
 
 # Site
 
-Produce a working URL for static files. Deploys made with a key stay until removed; there are no accounts. A key on the machine owns deploys and names.
+Produce a working URL for static files. Deploys made with a key stay until removed, and uploads without one expire after 7 days; there are no accounts. A key on the machine owns deploys and names.
 
 ## Choose what to deploy
 

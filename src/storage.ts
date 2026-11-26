@@ -123,8 +123,9 @@ export async function storeDeploy(env: Env, request: Request, filename: string, 
   if (owner) metadata.owner = owner;
   if (writtenByWorker) Object.assign(metadata, WORKER_INDEX);
 
-  let id = unownedId();
+  let id: string;
   if (owner) id = randomId();
+  else id = unownedId();
   const fixed = new FixedLengthStream(total);
   const piping = source.pipeTo(fixed.writable);
   let written: R2Object | null;
