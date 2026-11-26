@@ -42,7 +42,7 @@ https://k3m9xq2a.site.stoff.dev
 
 The link is copied to your clipboard. Use `site --no-copy dist` to leave your clipboard alone.
 
-**One request, no build step.** The whole folder goes up in a single upload and is live the moment the link prints. No account to create, no DNS or certificate to wait for. Deploys stay until you remove them.
+**One request, no build step.** The whole folder goes up in a single upload and is live the moment the link prints. No account to create, no DNS or certificate to wait for. Deploys made with a key, which the CLI makes for you, stay until you remove them.
 
 <details>
 <summary>Other downloads</summary>
@@ -221,13 +221,13 @@ On private sites the rules are encrypted with everything else and applied in the
 <details>
 <summary><strong>Use curl, no install needed</strong></summary>
 
-Deploy a single file. The type comes from its filename, as above:
+Deploy a single file. The type comes from its filename, as above. A deploy without a key is removed after 7 days:
 
 ```sh
 curl -T page.html https://site.stoff.dev
 ```
 
-With your key, the deploy is yours, and you can name it, list and remove:
+With your key, the deploy is yours and stays until you remove it, and you can name it, list and remove:
 
 ```sh
 curl -T page.html -H 'Authorization: Bearer <key before the dot>' 'https://site.stoff.dev/?name=todo'
@@ -236,7 +236,7 @@ curl -X DELETE -H 'Authorization: Bearer <key before the dot>' https://site.stof
 curl -X DELETE -H 'Authorization: Bearer <key before the dot>' https://site.stoff.dev/names/<name>
 ```
 
-Add `-H 'Accept: application/json'` to a deploy for JSON. A deploy without a key can't be removed by you; ask through [issues](https://github.com/Stoffbergie/site/issues) if one needs taking down. `curl https://site.stoff.dev` prints the full usage.
+Add `-H 'Accept: application/json'` to a deploy for JSON. A deploy without a key can't be removed by you before its 7 days are up; ask through [issues](https://github.com/Stoffbergie/site/issues) if one needs taking down. `curl https://site.stoff.dev` prints the full usage.
 
 </details>
 
@@ -251,6 +251,7 @@ Add `-H 'Accept: application/json'` to a deploy for JSON. A deploy without a key
 | Deploys and name changes | 30 per minute per IP |
 | Deploys storing >10 MB   | 5 per minute per IP  |
 | Lifetime                 | Until removed        |
+| Lifetime without a key   | 7 days               |
 
 An IPv6 address counts as its /64 network. A deploy's stored size includes files reused from earlier deploys.
 

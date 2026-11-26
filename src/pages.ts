@@ -80,8 +80,16 @@ function usage(origin: string, domain: string): Section[] {
     {
       title: "curl",
       rows: [
-        [`curl -T page.html ${origin}`, "Deploy one file", "Upload a single file; its type comes from the filename and it is served at / and under its name. Prints the URL."],
-        [`curl -T page.html -H 'Authorization: Bearer <key before the dot>' '${origin}/?name=todo'`, "Name it", "Deploy with your key to own the deploy and claim or move a name."],
+        [
+          `curl -T page.html ${origin}`,
+          "Deploy one file",
+          "Upload a single file; its type comes from the filename and it is served at / and under its name. Prints the URL. Without a key it is removed after 7 days."
+        ],
+        [
+          `curl -T page.html -H 'Authorization: Bearer <key before the dot>' '${origin}/?name=todo'`,
+          "Name it",
+          "Deploy with your key to own the deploy, keep it until you remove it, and claim or move a name."
+        ],
         [`curl -H 'Authorization: Bearer <key before the dot>' ${origin}/list`, "List as JSON", "Your names and deploys."],
         [`curl -X DELETE -H 'Authorization: Bearer <key before the dot>' ${origin}/deploys/<id>`, "Delete a deploy", "Remove a deploy you own. DELETE /names/<name> releases a name."]
       ]
@@ -89,7 +97,7 @@ function usage(origin: string, domain: string): Section[] {
   ];
 }
 
-const LIMITS = `Deploys stay until you remove them. Each deploy holds up to 100 MB and 5000 files; each key holds up to 20 names. Names are 3 to 40 lowercase letters, digits and hyphens. Errors are plain text: 400 bad upload or name, 401 missing key, 403 not yours, 409 name taken, 413 too large, 429 too many requests.`;
+const LIMITS = `Deploys made with a key stay until you remove them; deploys made without one are removed after 7 days. Each deploy holds up to 100 MB and 5000 files; each key holds up to 20 names. Names are 3 to 40 lowercase letters, digits and hyphens. Errors are plain text: 400 bad upload or name, 401 missing key, 403 not yours, 409 name taken, 413 too large, 429 too many requests.`;
 
 export function homeText(origin: string, domain: string): string {
   const lines = [`site: ${TAGLINE.toLowerCase()}`, "", AUTOMATION_GUIDANCE, ""];
