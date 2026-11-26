@@ -316,7 +316,14 @@ const viteRelative: Files = {
   "assets/index-R3l4.js": "document.body.dataset.ran = location.pathname;"
 };
 
+const caseFolder: Files = {
+  "Docs/readme.html": page("case-readme"),
+  "assets/app.js": "window.app = true;",
+  "404.html": page("case-404")
+};
+
 export const sites = {
+  caseFolder,
   noReferrer,
   viteRelative,
   flat,

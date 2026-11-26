@@ -144,7 +144,8 @@ function basePathAsset(files: ListedFile[], relative: string, lookup: (path: str
   const firstSegment = relative.slice(0, separator);
   const remainder = relative.slice(separator + 1);
   if (!remainder.includes("/")) return undefined;
-  const isDeployedName = files.some((file) => file.path.split("/")[0] === firstSegment);
+  const foldedFirstSegment = foldSegment(firstSegment);
+  const isDeployedName = files.some((file) => foldSegment(file.path.split("/")[0]) === foldedFirstSegment);
   if (isDeployedName) return undefined;
   return lookup(remainder);
 }

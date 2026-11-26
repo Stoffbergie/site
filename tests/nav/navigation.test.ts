@@ -875,6 +875,13 @@ add("basePath", "the base path itself serves the site", async (t) => {
   await t.expect("base-app");
   await t.waitFor(`document.body.dataset.ran === "yes"`);
 });
+add("caseFolder", "a first segment that names a folder in another letter case is not a base path", async (t) => {
+  await t.open("/docs/readme.html");
+  await t.expect("case-readme");
+  const response = await t.goto("/docs/assets/app.js");
+  assert.equal(response?.status(), 404);
+  await t.expect("case-404");
+});
 add("plain", "a multi-page site without 404.html still has real 404s", async (t) => {
   await warm(t, "/", "plain-home");
   const response = await t.goto("/nope");
