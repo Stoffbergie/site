@@ -1,6 +1,6 @@
 export type ListedFile = { path: string; type: string; length: number };
 export type Listing = { spa: boolean; files: ListedFile[]; byPath: Map<string, number> };
-export type Target = { kind: "file"; number: number; status: 200 | 404 } | { kind: "folder" } | { kind: "list" } | { kind: "missing" };
+export type Target = { kind: "file"; number: number; status: 200 | 404 } | { kind: "folder" } | { kind: "page" } | { kind: "list" } | { kind: "missing" };
 export type ByteRange = { offset: number; length: number };
 
 /**
@@ -19,6 +19,11 @@ export function resolve(listing: Listing, pathname: string): Target {
   for (const candidate of candidates) {
     const number = byPath.get(candidate);
     if (number !== undefined) return { kind: "file", number, status: 200 };
+  }
+  if (relative.endsWith("/")) {
+    const withoutSlash = relative.slice(0, -1);
+    const pages = [withoutSlash, `${withoutSlash}.html`, `${withoutSlash}.htm`];
+    if (pages.some((page) => byPath.has(page))) return { kind: "page" };
   }
   const isFolder = byPath.has(`${relative}/index.html`) || byPath.has(`${relative}/index.htm`);
   if (relative !== "" && isFolder) return { kind: "folder" };
@@ -41,6 +46,10 @@ export function resolve(listing: Listing, pathname: string): Target {
 
 export function folderLocation(url: URL): string {
   return `${collapseSlashes(url.pathname)}/${url.search}`;
+}
+
+export function pageLocation(url: URL): string {
+  return `${collapseSlashes(url.pathname).replace(/\/$/, "")}${url.search}`;
 }
 
 function collapseSlashes(pathname: string): string {
