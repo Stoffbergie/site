@@ -21,10 +21,6 @@ type Opened = { kind: "site"; site: Site } | { kind: "public" } | { kind: "locke
 
 const BOOTSTRAP_PATH = "/";
 const NETWORK_PATH = /^\/__site\/(?:meta|boot\.js|entries\/(?:0|[1-9]\d*))$/;
-const PROBE_HEADER = "X-Site-Probe";
-const BOOTSTRAPS_HEADER = "X-Site-Bootstraps";
-
-const bootstrapsInARow = new Map<string, number>();
 
 let current: Site | null = null;
 
@@ -44,9 +40,12 @@ worker.addEventListener("fetch", (event) => {
   const request = event.request;
   const url = new URL(request.url);
   if (url.origin !== worker.location.origin) return;
-  if (NETWORK_PATH.test(url.pathname)) return;
+  if (NETWORK_PATH.test(url.pathname)) {
+    event.respondWith(fetch(request, { referrerPolicy: "no-referrer" }));
+    return;
+  }
   const pathname = decodePath(url.pathname);
-  if (pathname !== null && isReserved(pathname)) {
+  if (pathname === null || isReserved(pathname)) {
     event.respondWith(Promise.resolve(notFound()));
     return;
   }
@@ -76,23 +75,10 @@ async function answer(request: Request, url: URL): Promise<Response> {
     if (location === null) return notFound();
     return new Response(null, { status: 308, headers: { Location: location } });
   }
-  const page = `${url.pathname}${url.search}`;
-  if (request.headers.has(PROBE_HEADER)) return probeAnswer(page);
-  if (request.mode === "navigate") {
-    if (!cameFromThisSite(request)) {
-      bootstrapsInARow.set(page, (bootstrapsInARow.get(page) ?? 0) + 1);
-      return bootstrapPage(statusOf(target));
-    }
-    bootstrapsInARow.delete(page);
-  }
+  if (request.mode === "navigate" && !cameFromThisSite(request)) return bootstrapPage(statusOf(target));
   if (target.kind === "missing") return notFound();
   if (target.kind === "list") return html(fileListPage(url.hostname, site.files));
   return serveFile(request, site, target.number, target.status);
-}
-
-function probeAnswer(page: string): Response {
-  const bootstraps = bootstrapsInARow.get(page) ?? 0;
-  return new Response(null, { status: 204, headers: { [BOOTSTRAPS_HEADER]: String(bootstraps) } });
 }
 
 function statusOf(target: Target): number {

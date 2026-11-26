@@ -607,6 +607,111 @@ add(
   { modes: ["private"] }
 );
 add(
+  "noReferrer",
+  "a reopen chain that keeps failing while the service worker restarts stops and says what to do",
+  async (t) => {
+    await warm(t, "/", "noref-home");
+    const session = await t.context.newCDPSession(t.page);
+    await session.send("ServiceWorker.enable");
+    await t.page.route("**/__site/boot.js", async (route) => {
+      await session.send("ServiceWorker.stopAllWorkers");
+      await route.continue();
+    });
+    await hopsWithoutReferrer(t);
+    await settles(t, () => t.click("#about"), showsState("stuck"), 4);
+    await endsStuck(t);
+  },
+  { modes: ["private"], browsers: ["chromium"] }
+);
+add(
+  "noReferrer",
+  "a fresh tab opens a page whose reopen chain failed in another tab",
+  async (t) => {
+    await warm(t, "/", "noref-home");
+    await hopsWithoutReferrer(t);
+    await settles(t, () => t.click("#about"), showsState("stuck"), 4);
+    t.page = await t.context.newPage();
+    await t.open("/about.html");
+    await t.expect("noref-about", { hash: "" });
+  },
+  { modes: ["private"] }
+);
+add(
+  "flat",
+  "several tabs opening the same full link together",
+  async (t) => {
+    await warm(t);
+    const tabs = await Promise.all([1, 2, 3, 4, 5].map(() => t.context.newPage()));
+    await Promise.all(
+      tabs.map(async (tab) => {
+        const opened = makeT(t.mode, t.browserName, t.context, tab, t.site);
+        await opened.open("/about.html");
+        await opened.expect("about", { hash: "" });
+      })
+    );
+  },
+  { modes: ["private"] }
+);
+add(
+  "flat",
+  "opening the same full link again and again in one tab never ends on a dead end",
+  async (t) => {
+    await warm(t);
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      await t.page.goto("about:blank");
+      await t.open("/about.html");
+      await t.waitFor(`document.querySelector('meta[name="page"]')?.content === "about" || ${showsState("stuck")}`);
+      if (await t.eval(showsState("stuck"))) {
+        await t.page.goto("about:blank");
+        await t.open("/about.html");
+      }
+      await t.expect("about", { hash: "" });
+    }
+  },
+  { modes: ["private"] }
+);
+add(
+  "flat",
+  "a POST to a reserved path with a malformed escape is a local 404",
+  async (t) => {
+    await warm(t);
+    for (const path of ["/__site/%zz", "/%5F%5Fsite/%zz", "/__site/meta%zz"]) {
+      const answer = await t.eval<{ status: number; type: string }>(
+        `fetch(location.origin + ${JSON.stringify(path)}, { method: "POST", body: "x" }).then((r) => ({ status: r.status, type: r.headers.get("content-type") }))`
+      );
+      assert.equal(answer.status, 404, path);
+      assert.match(answer.type, /^text\/plain/, path);
+    }
+  },
+  { modes: ["private"] }
+);
+add(
+  "flat",
+  "requests the service worker passes to the network carry no referrer",
+  async (t) => {
+    await warm(t);
+    await t.goto("/about.html?secret=1");
+    await t.expect("about");
+    const referrers: string[] = [];
+    const record = (response: Response): void => {
+      if (response.fromServiceWorker()) return;
+      if (new URL(response.url()).pathname.startsWith("/__site/")) referrers.push(response.request().headers()["referer"] ?? "");
+    };
+    t.context.on("response", record);
+    try {
+      await t.eval(`Promise.all(["/__site/meta", "/__site/entries/0"].map((path) => fetch(path, { cache: "no-store" }).then((r) => r.arrayBuffer())))`);
+    } finally {
+      t.context.off("response", record);
+    }
+    assert.ok(referrers.length >= 2, `${referrers.length} requests`);
+    assert.deepEqual(
+      referrers.filter((referrer) => referrer.includes("secret")),
+      []
+    );
+  },
+  { modes: ["private"], browsers: ["chromium"] }
+);
+add(
   "flat",
   "several tabs",
   async (t) => {

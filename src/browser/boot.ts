@@ -14,10 +14,10 @@ type Link = { key: string | null; anchor: string };
 
 const KEY_FRAGMENT = /^([A-Za-z0-9_-]{43})(?:#(.*))?$/s;
 const OPENING_PATH = "/__site/opening";
+const REOPENS_ITEM = "site-reopens";
 const MAX_REOPENS = 3;
+const REOPEN_WINDOW_MS = 60_000;
 const BOOTSTRAP_HEADER = "X-Site-Bootstrap";
-const PROBE_HEADER = "X-Site-Probe";
-const BOOTSTRAPS_HEADER = "X-Site-Bootstraps";
 
 function readLink(): Link {
   const fragment = location.hash.slice(1);
@@ -54,6 +54,41 @@ function openPage(link: Link): void {
   location.replace(target);
 }
 
+type Reopens = { target: string; count: number; first: number; historyLength: number };
+
+function savedReopens(): Reopens | null {
+  const saved = sessionStorage.getItem(REOPENS_ITEM);
+  if (saved === null) return null;
+  return JSON.parse(saved) as Reopens;
+}
+
+function continuesChain(reopens: Reopens | null, target: string, now: number): reopens is Reopens {
+  if (reopens === null) return false;
+  if (reopens.target !== target) return false;
+  if (reopens.historyLength !== history.length) return false;
+  return now - reopens.first < REOPEN_WINDOW_MS;
+}
+
+function reopen(link: Link): void {
+  const target = withAnchor(link.anchor);
+  const now = Date.now();
+  try {
+    const saved = savedReopens();
+    let reopens: Reopens = { target, count: 0, first: now, historyLength: history.length };
+    if (continuesChain(saved, target, now)) reopens = saved;
+    if (reopens.count >= MAX_REOPENS) {
+      sessionStorage.removeItem(REOPENS_ITEM);
+      show("stuck");
+      return;
+    }
+    sessionStorage.setItem(REOPENS_ITEM, JSON.stringify({ ...reopens, count: reopens.count + 1 }));
+  } catch {
+    show("unsupported");
+    return;
+  }
+  openPage(link);
+}
+
 async function keyOpensSite(key: string): Promise<boolean> {
   try {
     await openDeploy(await fetchMeta(), key);
@@ -87,15 +122,13 @@ function waitForControl(registration: ServiceWorkerRegistration): Promise<boolea
   });
 }
 
-type WorkerAnswer = "page" | "bootstrap" | "unavailable" | "looping";
+type WorkerAnswer = "page" | "bootstrap" | "unavailable";
 
 async function askWorker(): Promise<WorkerAnswer> {
-  const response = await fetch(pageAddress(), { cache: "no-store", headers: { [PROBE_HEADER]: "1" } });
+  const response = await fetch(pageAddress(), { cache: "no-store" });
   await response.body?.cancel();
   if (response.headers.has(BOOTSTRAP_HEADER)) return "bootstrap";
   if (response.status === 503) return "unavailable";
-  const bootstraps = Number(response.headers.get(BOOTSTRAPS_HEADER));
-  if (bootstraps > MAX_REOPENS) return "looping";
   return "page";
 }
 
@@ -130,7 +163,7 @@ async function boot(): Promise<void> {
   dropKey(link);
   if (controlledAlready) {
     const answer = await askWorker();
-    if (answer === "page") openPage(link);
+    if (answer === "page") reopen(link);
     else if (answer === "unavailable") show("failed");
     else show("stuck");
     return;
@@ -142,7 +175,7 @@ async function boot(): Promise<void> {
     show("unsupported");
     return;
   }
-  openPage(link);
+  reopen(link);
 }
 
 window.addEventListener("hashchange", () => {
