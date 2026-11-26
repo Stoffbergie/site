@@ -458,6 +458,20 @@ test("a private deploy that runs out of temporary space says so", { timeout: 60_
   assert.match(run.stderr, /temporary/);
 });
 
+test("a private deploy one header length over the limit is refused before its ciphertext is written", { timeout: 60_000 }, async () => {
+  const sealedLength = (plain: number) => plain + 16 * Math.max(1, Math.ceil(plain / 1_048_576));
+  const target = 100_000_000 - 8;
+  let page = target;
+  while (sealedLength(page) + sealedLength(sealedIndexLength(page)) > target) page -= 1;
+  const run = await withSmallFileLimit(["--no-copy", "-e", "-"], randomBytes(page));
+  assertPlainSentence(run);
+  assert.match(run.stderr, /the limit is 100 MB/);
+});
+
+function sealedIndexLength(page: number): number {
+  return JSON.stringify({ spa: false, files: [{ path: "index.html", type: "text/html", gzip: false, length: page }] }).length;
+}
+
 test("an oversized private deploy is refused before its ciphertext is written", { timeout: 60_000 }, async () => {
   const run = await withSmallFileLimit(["--no-copy", "-e", "-"], randomBytes(101_000_000));
   assertPlainSentence(run);

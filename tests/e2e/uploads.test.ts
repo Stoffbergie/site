@@ -1,9 +1,10 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { closeSync, openSync, ftruncateSync } from "node:fs";
 import { join } from "node:path";
 import { strict as assert } from "node:assert";
-import { test } from "vite-plus/test";
-import { apiKeyOf, baseUrl, folder, newHome, runCli, upload, visit } from "../helpers/site";
+import { inject, test } from "vite-plus/test";
+import { apiKeyOf, baseUrl, folder, newHome, runCli, upload, visit, type Run } from "../helpers/site";
 
 function pack(index: unknown, data: Buffer): Buffer {
   const json = Buffer.from(JSON.stringify(index));
@@ -108,6 +109,31 @@ test("the CLI checks the 100 MB limit before uploading", async () => {
   assert.equal(result.code, 1);
   assert.match(result.stderr, /^site: this deploy is 95\.4 MB and the limit is 100 MB; leave out large files or host them elsewhere\n$/);
   assert.match((await runCli(["ls"], { home })).stderr, /No deploys yet/);
+});
+
+function withFewDescriptors(descriptors: number, args: string[]): Promise<Run> {
+  const home = newHome();
+  const script = `ulimit -n ${descriptors}; exec "$0" "$@"`;
+  const child = spawn("/bin/sh", ["-c", script, inject("cli"), ...args], { env: { ...process.env, SITE_URL: baseUrl, HOME: home, XDG_CONFIG_HOME: home, NO_COLOR: "1" } });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (chunk: Buffer) => (stdout += chunk.toString()));
+  child.stderr.on("data", (chunk: Buffer) => (stderr += chunk.toString()));
+  child.stdin.end();
+  return new Promise((resolve) => child.on("close", (code) => resolve({ code, stdout, stderr })));
+}
+
+test("a deploy with many more large files than the CLI may hold open lands whole", { timeout: 120_000 }, async () => {
+  const photos: Record<string, Buffer> = {};
+  for (let number = 0; number < 85; number += 1) photos[`photos/${number}.jpg`] = randomBytes(1_100_000);
+  const run = await withFewDescriptors(48, ["--no-copy", folder({ "index.html": "<h1>album</h1>", ...photos })]);
+  assert.equal(run.code, 0, run.stderr);
+  const url = run.stdout.trim();
+  for (const [path, bytes] of Object.entries(photos)) {
+    const served = await visit(url, `/${path}`, { headers: { "accept-encoding": "identity" } });
+    assert.equal(served.status, 200, path);
+    assert.ok(served.body.equals(bytes), `${path} has the deployed bytes`);
+  }
 });
 
 test("the CLI explains what it needs when given nothing to deploy", async () => {

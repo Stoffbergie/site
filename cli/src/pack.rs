@@ -126,8 +126,20 @@ enum Body {
 }
 
 struct Spool {
-    file: File,
+    file: Arc<File>,
+    start: u64,
     length: u64,
+}
+
+#[derive(Default)]
+struct Spooler {
+    shared: std::sync::Mutex<SpoolFile>,
+}
+
+#[derive(Default)]
+struct SpoolFile {
+    file: Option<Arc<File>>,
+    end: u64,
 }
 
 struct SpoolReader<'a> {
@@ -142,7 +154,11 @@ impl Read for SpoolReader<'_> {
         if wanted == 0 {
             return Ok(0);
         }
-        let count = read_at(&self.spool.file, &mut buffer[..wanted], self.position)?;
+        let count = read_at(
+            &self.spool.file,
+            &mut buffer[..wanted],
+            self.spool.start + self.position,
+        )?;
         if count == 0 {
             return Err(std::io::ErrorKind::UnexpectedEof.into());
         }
@@ -159,6 +175,28 @@ fn read_at(file: &File, buffer: &mut [u8], offset: u64) -> std::io::Result<usize
 #[cfg(windows)]
 fn read_at(file: &File, buffer: &mut [u8], offset: u64) -> std::io::Result<usize> {
     std::os::windows::fs::FileExt::seek_read(file, buffer, offset)
+}
+
+#[cfg(unix)]
+fn write_all_at(file: &File, bytes: &[u8], offset: u64) -> std::io::Result<()> {
+    std::os::unix::fs::FileExt::write_all_at(file, bytes, offset)
+}
+
+#[cfg(windows)]
+fn write_all_at(file: &File, bytes: &[u8], offset: u64) -> std::io::Result<()> {
+    let mut written = 0;
+    while written < bytes.len() {
+        let count = std::os::windows::fs::FileExt::seek_write(
+            file,
+            &bytes[written..],
+            offset + written as u64,
+        )?;
+        if count == 0 {
+            return Err(std::io::ErrorKind::WriteZero.into());
+        }
+        written += count;
+    }
+    Ok(())
 }
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
@@ -256,7 +294,7 @@ enum Spooling {
     NoRoom,
 }
 
-fn spool(reader: &mut impl Read) -> Result<Body, Spooling> {
+fn spool(reader: &mut impl Read, spooler: &Spooler) -> Result<Body, Spooling> {
     let mut head = Vec::new();
     reader
         .by_ref()
@@ -266,8 +304,14 @@ fn spool(reader: &mut impl Read) -> Result<Body, Spooling> {
     if head.len() as u64 <= LARGEST_SPOOL_IN_MEMORY {
         return Ok(Body::Bytes(head));
     }
-    let mut file = anonymous_file().map_err(|_| Spooling::NoRoom)?;
-    file.write_all(&head).map_err(|_| Spooling::NoRoom)?;
+    let mut shared = spooler.shared.lock().expect("spool lock");
+    if shared.file.is_none() {
+        let file = anonymous_file().map_err(|_| Spooling::NoRoom)?;
+        shared.file = Some(Arc::new(file));
+    }
+    let file = Arc::clone(shared.file.as_ref().expect("spool file was just made"));
+    let start = shared.end;
+    write_all_at(&file, &head, start).map_err(|_| Spooling::NoRoom)?;
     let mut length = head.len() as u64;
     let mut buffer = vec![0u8; 64 * 1024];
     loop {
@@ -277,11 +321,15 @@ fn spool(reader: &mut impl Read) -> Result<Body, Spooling> {
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
             Err(_) => return Err(Spooling::ReadFailed),
         };
-        file.write_all(&buffer[..count])
-            .map_err(|_| Spooling::NoRoom)?;
+        write_all_at(&file, &buffer[..count], start + length).map_err(|_| Spooling::NoRoom)?;
         length += count as u64;
     }
-    Ok(Body::Spooled(Spool { file, length }))
+    shared.end = start + length;
+    Ok(Body::Spooled(Spool {
+        file,
+        start,
+        length,
+    }))
 }
 
 fn no_room() -> anyhow::Error {
@@ -378,8 +426,9 @@ impl Pack {
             choices = choose_reuse(&inspected, known);
         }
         let work: Vec<(&Inspected, Option<Earlier>)> = inspected.iter().zip(choices).collect();
+        let spooler = Spooler::default();
         let prepared = parallel_map(&work, |(file, choice)| {
-            prepare(file, choice.clone(), compression)
+            prepare(file, choice.clone(), compression, &spooler)
         })?;
         let mut bodies = Vec::with_capacity(prepared.len());
         let mut placed = Vec::with_capacity(prepared.len());
@@ -580,23 +629,12 @@ fn seal(
     }
     let mut plain = vec![Body::Bytes(sealed_index)];
     plain.extend(files);
-    let sealed_total: u64 = plain
-        .iter()
-        .map(|body| crypto::sealed_length(body.length()))
-        .sum();
-    if sealed_total > MAX_DEPLOY_BYTES {
-        return Err(too_large(sealed_total));
-    }
-
-    let mut bodies = Vec::with_capacity(plain.len());
     let mut entries = Vec::with_capacity(plain.len());
     let mut offset = 0;
-    for (entry, body) in plain.iter().enumerate() {
-        let sealed = seal_body(entry as u32, body, &sealer)?;
-        let length = sealed.length();
+    for body in &plain {
+        let length = crypto::sealed_length(body.length());
         entries.push(OpaqueEntry { offset, length });
         offset += length;
-        bodies.push(sealed);
     }
 
     let (name, link_salt) = match &link_key.hint {
@@ -611,10 +649,21 @@ fn seal(
         },
         files: entries,
     })?;
-    Ok((with_preamble(ENCRYPTED_MAGIC, &json), bodies, offset))
+    let header = with_preamble(ENCRYPTED_MAGIC, &json);
+    let request_size = header.len() as u64 + offset;
+    if request_size > MAX_DEPLOY_BYTES {
+        return Err(too_large(request_size));
+    }
+
+    let spooler = Spooler::default();
+    let mut bodies = Vec::with_capacity(plain.len());
+    for (entry, body) in plain.iter().enumerate() {
+        bodies.push(seal_body(entry as u32, body, &sealer, &spooler)?);
+    }
+    Ok((header, bodies, offset))
 }
 
-fn seal_body(entry: u32, body: &Body, sealer: &Sealer) -> Result<Body> {
+fn seal_body(entry: u32, body: &Body, sealer: &Sealer, spooler: &Spooler) -> Result<Body> {
     let plain_length = body.length();
     let changed = || match body.stored_at() {
         Some((path, _)) => {
@@ -631,7 +680,7 @@ fn seal_body(entry: u32, body: &Body, sealer: &Sealer) -> Result<Body> {
         sealer: sealer.clone(),
         sealed: std::io::Cursor::new(Vec::new()),
     };
-    let sealed = match spool(&mut sealing) {
+    let sealed = match spool(&mut sealing, spooler) {
         Ok(sealed) => sealed,
         Err(Spooling::ReadFailed) => return Err(changed()),
         Err(Spooling::NoRoom) => return Err(no_room()),
@@ -822,10 +871,10 @@ impl<R: Read> Read for Hashing<R> {
     }
 }
 
-fn snapshot(path: &Path) -> Result<(Body, String)> {
+fn snapshot(path: &Path, spooler: &Spooler) -> Result<(Body, String)> {
     let unreadable = || format!("could not read {}", path.display());
     let mut reader = Hashing::new(File::open(path).with_context(unreadable)?);
-    let body = match spool(&mut reader) {
+    let body = match spool(&mut reader, spooler) {
         Ok(body) => body,
         Err(Spooling::ReadFailed) => bail!(unreadable()),
         Err(Spooling::NoRoom) => return Err(no_room()),
@@ -837,6 +886,7 @@ fn prepare(
     file: &Inspected,
     choice: Option<Earlier>,
     compression: Compression,
+    spooler: &Spooler,
 ) -> Result<Prepared> {
     if let Some(earlier) = choice {
         return Ok(Prepared {
@@ -854,7 +904,7 @@ fn prepare(
     let bytes = match &file.content {
         Content::File(path) if !file.compress => {
             let (body, hash) = match compression {
-                Compression::Brotli => snapshot(path)?,
+                Compression::Brotli => snapshot(path, spooler)?,
                 Compression::Gzip => {
                     let length = std::fs::metadata(path)
                         .with_context(|| format!("could not read {}", path.display()))?
