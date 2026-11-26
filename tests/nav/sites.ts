@@ -328,7 +328,52 @@ const xhtmlPage: Files = {
   "app.js": "window.app = true;"
 };
 
+const rulesNav: Files = {
+  _redirects: [
+    "/about  /new  301",
+    "/contact  /new  301",
+    "/guide  /new  301",
+    "/docs  /new  301",
+    "/legacy  /new  301",
+    "/team  /new  301!",
+    "/blog/*  /new  302",
+    "/myrepo/*  /new  301",
+    "/help  /about  200",
+    "/manual  /docs  200",
+    "/g  /GUIDE  200",
+    "/gone/*  /nowhere  200",
+    "/chain  /blog/x  200",
+    "/s/*  /s/:splat/  301!",
+    "/f/*  /f/:splat  301!",
+    "/c/*  /C/:splat  301!",
+    "/old-page  /new  301"
+  ].join("\n"),
+  _headers: ["/*", "  X-Rule: all", "/deep/:name", "  X-Name: :name"].join("\n"),
+  "index.html": page("rn-home"),
+  "about.html": page("rn-about"),
+  "contact.htm": page("rn-contact"),
+  "Guide.html": page("rn-guide"),
+  "docs/index.html": page("rn-docs"),
+  "legacy/index.htm": page("rn-legacy"),
+  "team.html": page("rn-team"),
+  "new.html": page("rn-new"),
+  "s/page.html": page("rn-s-page"),
+  "f/sub/index.html": page("rn-f-sub"),
+  "C/x/index.html": page("rn-c-x"),
+  "200.html": page("rn-shell"),
+  "assets/app.js": "window.app = true;"
+};
+
+const rulesSpa: Files = {
+  _redirects: ["/old  /dashboard  301", "/missing/*  /nothing  404"].join("\n"),
+  _headers: ["/*", "  X-Rule: spa"].join("\n"),
+  "index.html": page("rs-app", "", `<script src="/app.js"></script>`),
+  "app.js": "window.app = true;"
+};
+
 export const sites = {
+  rulesNav,
+  rulesSpa,
   caseFolder,
   xhtmlPage,
   noReferrer,

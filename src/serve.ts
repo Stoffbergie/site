@@ -1,11 +1,12 @@
 import bootSource from "virtual:browser/boot";
 import serviceWorkerSource from "virtual:browser/service-worker";
-import { READ_METHODS } from "./cors";
+import { keepSiteDecisions, READ_METHODS } from "./cors";
 import type { Env } from "./env";
 import { isDeployId, nameProblem } from "./names";
 import type { PackFile } from "./pack";
 import { fileListPage, privateSitePage } from "./pages";
-import { decodePath, isReserved, parseRange, redirectLocation, resolve } from "./resolve";
+import { decodePath, isReserved, parseRange, redirectLocation } from "./resolve";
+import { applyHeaderRules, isConfigFile, route } from "./rules";
 import { deployKey, EDGE_SECONDS, loadDeploy, readPointer, type Deploy } from "./storage";
 
 const ENTRY_PATH = /^\/__site\/entries\/(0|[1-9]\d*)$/;
@@ -39,16 +40,25 @@ export async function serveSite(request: Request, env: Env, ctx: ExecutionContex
   const pathname = decodePath(url.pathname);
   if (pathname === null) return notFound();
   if (isReserved(pathname)) return notFound();
-  const target = resolve({ spa: deploy.index.spa, files: deploy.index.files, byPath: deploy.byPath }, pathname);
+  const listed = { spa: deploy.index.spa, files: deploy.index.files, byPath: deploy.byPath };
+  const routed = route(listed, deploy.index.rules, pathname, url, { privateSite: false });
+  if (routed.kind === "redirect") return new Response(null, { status: routed.status, headers: { Location: routed.location, "Cache-Control": REVALIDATE } });
+  const target = routed.target;
 
-  if (target.kind === "missing") return notFound();
   if (target.kind === "redirect") {
     const location = redirectLocation(target.path, url);
-    if (location === null) return notFound();
-    return new Response(null, { status: 308, headers: { Location: location, "Cache-Control": REVALIDATE } });
+    if (location !== null) return new Response(null, { status: 308, headers: { Location: location, "Cache-Control": REVALIDATE } });
   }
-  if (target.kind === "list") return listing(request, deploy, named, url.hostname);
-  return serveFile(request, env, ctx, deploy, target.number, target.status, named);
+  let response: Response;
+  if (target.kind === "file") {
+    response = await serveFile(request, env, ctx, deploy, target.number, target.status, named);
+  } else if (target.kind === "list") {
+    response = listing(request, deploy, named, url.hostname);
+  } else {
+    response = notFound();
+  }
+  keepSiteDecisions(response, applyHeaderRules(response.headers, deploy.index.rules, pathname, named));
+  return response;
 }
 
 async function serveEncrypted(request: Request, env: Env, ctx: ExecutionContext, deploy: Deploy, named: boolean, pathname: string): Promise<Response> {
@@ -135,7 +145,8 @@ function listing(request: Request, deploy: Deploy, named: boolean, hostname: str
   const headers = contentHeaders("text/html; charset=utf-8", etag, 200, named);
   if (sameVersion(request, etag)) return new Response(null, { status: 304, headers });
   if (request.method === "HEAD") return new Response(null, { headers });
-  return new Response(fileListPage(hostname, deploy.index.files), { headers });
+  const listed = deploy.index.files.filter((file) => !isConfigFile(file.path));
+  return new Response(fileListPage(hostname, listed), { headers });
 }
 
 function contentHeaders(type: string, etag: string, status: number, named: boolean): Headers {

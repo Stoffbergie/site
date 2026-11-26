@@ -1,4 +1,5 @@
 import { nameProblem } from "./names";
+import { checkRules, type SiteRules } from "./rules";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -17,7 +18,7 @@ const SALT_PATTERN = /^[A-Za-z0-9_-]{22}$/;
 
 export type PackFile = { path: string; offset: number; length: number; type: string; gzip: boolean };
 export type Encrypted = { name?: string; linkSalt?: string; contentSalt: string };
-export type PackIndex = { spa: boolean; files: PackFile[]; encrypted?: Encrypted };
+export type PackIndex = { spa: boolean; files: PackFile[]; encrypted?: Encrypted; rules?: SiteRules };
 export type IndexCheck = { index: PackIndex } | { problem: string };
 
 export function encodeHeader(index: PackIndex): Uint8Array {
@@ -41,6 +42,9 @@ export function readIndexLength(preamble: Uint8Array): number {
 export function decodeIndex(json: Uint8Array): PackIndex {
   const index = JSON.parse(decoder.decode(json)) as PackIndex;
   if (index.encrypted) return { spa: false, files: index.files.map((file, number) => opaqueEntry(number, file.offset, file.length)), encrypted: index.encrypted };
+  const rules = checkRules(index.rules);
+  if ("problem" in rules) delete index.rules;
+  else index.rules = rules.rules;
   return index;
 }
 
@@ -76,10 +80,15 @@ export function checkIndex(json: Uint8Array, dataLength: number): IndexCheck {
     expectedOffset += length as number;
   }
   if (expectedOffset !== dataLength) return { problem: "The pack's file lengths do not add up to the upload size." };
-  return { index: { spa, files: checked } };
+  const rules = checkRules((parsed as { rules?: unknown }).rules);
+  if ("problem" in rules) return { problem: rules.problem };
+  const index: PackIndex = { spa, files: checked };
+  if (rules.rules !== undefined) index.rules = rules.rules;
+  return { index };
 }
 
 function checkEncryptedIndex(parsed: { encrypted?: unknown; files?: unknown }, dataLength: number): IndexCheck {
+  if ("rules" in parsed) return { problem: "An encrypted pack keeps its rules in the sealed index only." };
   const encrypted = checkEncrypted(parsed.encrypted);
   if (encrypted === null) return { problem: "The pack's encrypted details need a contentSalt and either a name or a linkSalt." };
   const { files } = parsed;

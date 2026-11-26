@@ -16,7 +16,7 @@
   "scripts": {
     "dev": "vp dev",
     "build": "vp build",
-    "check": "vp check && cargo fmt --manifest-path cli/Cargo.toml --check && cargo clippy --manifest-path cli/Cargo.toml --locked -- -D warnings && vp test run",
+    "check": "vp check && cargo fmt --manifest-path cli/Cargo.toml --check && cargo clippy --manifest-path cli/Cargo.toml --locked -- -D warnings && NODE_OPTIONS=--max-http-header-size=65536 vp test run",
     "deploy": "vp build && wrangler deploy",
     "prepare": "vp config"
   },

@@ -9,7 +9,7 @@ const STORE = "keys";
 const KEY_ENTRY = "link";
 
 export type SealedFile = ListedFile & { gzip: boolean };
-export type Site = Listing & { id: string; key: string; files: SealedFile[]; contentKey: CryptoKey };
+export type Site = Listing & { id: string; key: string; files: SealedFile[]; contentKey: CryptoKey; rules: unknown };
 export type Meta = { id: string; encrypted: { contentSalt: string }; entries: number[] };
 
 export class WrongKey extends Error {}
@@ -35,8 +35,8 @@ export async function openDeploy(meta: Meta, key: string): Promise<Site> {
   } catch {
     throw new WrongKey();
   }
-  const index = JSON.parse(new TextDecoder().decode(plainIndex)) as { spa: boolean; files: SealedFile[] };
-  return { id: meta.id, key, spa: index.spa, files: index.files, byPath: byPathOf(index.files), contentKey };
+  const index = JSON.parse(new TextDecoder().decode(plainIndex)) as { spa: boolean; files: SealedFile[]; rules?: unknown };
+  return { id: meta.id, key, spa: index.spa, files: index.files, byPath: byPathOf(index.files), contentKey, rules: index.rules };
 }
 
 async function deriveContentKey(linkKey: Uint8Array<ArrayBuffer>, salt: Uint8Array<ArrayBuffer>): Promise<CryptoKey> {
