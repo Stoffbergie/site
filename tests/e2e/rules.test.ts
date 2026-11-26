@@ -622,6 +622,20 @@ test("what the host appends to a site's Cache-Control counts toward the header b
   assert.match(reply.headers.vary as string, /\bOrigin\b/, "the host's origin-dependent answer says so in Vary");
 });
 
+test("the destination length limit counts the Location a public site sends, with no fragment added", async () => {
+  const destination = `https://example.com/${Array(8).fill(":splat").join("/")}`;
+  const { url } = await deploy(["--no-copy", folder({ _redirects: `/out/*  ${destination}  302\n/out/*  /fallback  302\n`, "index.html": "home" })]);
+  const path = `/out/${"a".repeat(2000)}`;
+  const base = `https://example.com/${Array(8).fill("a".repeat(2000)).join("/")}`;
+  const query = (total: number): string => `?q=${"b".repeat(total - base.length - 3)}`;
+  const longest = await visit(url, `${path}${query(16_384)}`);
+  assert.equal(longest.status, 302);
+  assert.equal(longest.headers.location, `${base}${query(16_384)}`);
+  assert.equal((longest.headers.location as string).length, 16_384);
+  const over = await visit(url, `${path}${query(16_385)}`);
+  assert.equal(over.headers.location, `/fallback${query(16_385)}`, "a Location one character over is refused and the next rule applies");
+});
+
 test("rules and the navigation rules compose without loops on a public site", async () => {
   const rules = [
     "/about  /new  301",

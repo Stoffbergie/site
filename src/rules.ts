@@ -6,7 +6,8 @@ export type HeaderLine = { name: string; value?: string };
 export type HeaderRule = { path: string; headers: HeaderLine[] };
 export type SiteRules = { redirects: RedirectRule[]; headers: HeaderRule[] };
 export type RulesCheck = { rules: SiteRules | undefined } | { problem: string };
-export type Routed = { kind: "redirect"; status: number; location: string; crossOrigin: boolean } | { kind: "target"; target: Target };
+export type Routed = { kind: "redirect"; status: number; location: string } | { kind: "target"; target: Target };
+export type RouteOptions = { privateSite: boolean };
 
 export const MAX_REDIRECTS = 10_000;
 export const MAX_DYNAMIC_REDIRECTS = 1_000;
@@ -154,20 +155,20 @@ function validPattern(value: unknown): value is string {
 }
 
 /**
- * Routes a decoded request path through a site's redirect rules, then through `resolve`. Rules match the path with doubled slashes collapsed, as `resolve` reads it. The first matching rule that applies wins: one whose destination is refused is skipped, and one that is not forced gives way to a page `resolve` finds by name at the path, before any of its fallbacks. The rule files themselves are never served.
+ * Routes a decoded request path through a site's redirect rules, then through `resolve`. Rules match the path with doubled slashes collapsed, as `resolve` reads it. The first matching rule that applies wins: one whose destination is refused is skipped, and one that is not forced gives way to a page `resolve` finds by name at the path, before any of its fallbacks. On private sites a redirect to another origin carries a fragment of its own. The rule files themselves are never served.
  */
-export function route(listing: Listing, rules: SiteRules | undefined, pathname: string, requestUrl: URL): Routed {
+export function route(listing: Listing, rules: SiteRules | undefined, pathname: string, requestUrl: URL, options: RouteOptions): Routed {
   if (rules !== undefined) {
     for (const found of matchingRedirects(rules, pathname)) {
       if (!found.rule.force && exists(listing, pathname)) break;
-      const routed = follow(listing, found.rule, found.captures, pathname, requestUrl);
+      const routed = follow(listing, found.rule, found.captures, pathname, requestUrl, options);
       if (routed !== null) return routed;
     }
   }
   return { kind: "target", target: resolveVisible(listing, pathname) };
 }
 
-function follow(listing: Listing, rule: RedirectRule, captures: Captures, pathname: string, requestUrl: URL): Routed | null {
+function follow(listing: Listing, rule: RedirectRule, captures: Captures, pathname: string, requestUrl: URL, options: RouteOptions): Routed | null {
   const destination = fill(rule.to, captures, encodePathValue, MAX_DESTINATION_LENGTH);
   if (destination === null) return null;
   const resolved = resolveUrl(destination, requestUrl);
@@ -177,16 +178,12 @@ function follow(listing: Listing, rule: RedirectRule, captures: Captures, pathna
   if (rule.status === 200 || rule.status === 404) {
     return { kind: "target", target: rewriteTarget(listing, resolved, rule.status) };
   }
-  const location = withQuery(destination, requestUrl.search);
-  if (sentLength(location, sameOrigin) > MAX_DESTINATION_LENGTH) return null;
+  let location = withQuery(destination, requestUrl.search);
+  if (options.privateSite && !sameOrigin && !location.includes("#")) location = `${location}#`;
+  if (location.length > MAX_DESTINATION_LENGTH) return null;
   const redirected = resolveUrl(location, requestUrl);
   if (redirected === null || sameAddress(redirected, pathname, requestUrl)) return null;
-  return { kind: "redirect", status: rule.status, location, crossOrigin: !sameOrigin };
-}
-
-function sentLength(location: string, sameOrigin: boolean): number {
-  if (!sameOrigin && !location.includes("#")) return location.length + 1;
-  return location.length;
+  return { kind: "redirect", status: rule.status, location };
 }
 
 function* matchingRedirects(rules: SiteRules, pathname: string): Generator<Found> {

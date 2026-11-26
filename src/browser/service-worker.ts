@@ -71,8 +71,8 @@ async function answer(request: Request, url: URL): Promise<Response> {
   const site = opened.site;
   const pathname = decodePath(url.pathname);
   if (pathname === null) return notFound();
-  const routed = route(site, site.siteRules, pathname, url);
-  if (routed.kind === "redirect") return redirect(routed.status, routed.location, routed.crossOrigin);
+  const routed = route(site, site.siteRules, pathname, url, { privateSite: true });
+  if (routed.kind === "redirect") return new Response(null, { status: routed.status, headers: { Location: routed.location } });
   const target = routed.target;
   if (target.kind === "redirect") {
     const location = redirectLocation(target.path, url);
@@ -90,12 +90,6 @@ async function answer(request: Request, url: URL): Promise<Response> {
   }
   applyHeaderRules(response.headers, site.siteRules, pathname, false);
   return response;
-}
-
-function redirect(status: number, location: string, crossOrigin: boolean): Response {
-  let sent = location;
-  if (crossOrigin && !location.includes("#")) sent = `${location}#`;
-  return new Response(null, { status, headers: { Location: sent } });
 }
 
 function statusOf(target: Target): number {

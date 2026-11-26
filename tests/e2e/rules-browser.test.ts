@@ -137,3 +137,26 @@ test("a redirect from an encrypted site to another origin never carries the key 
   assert.equal(await page.evaluate("location.hash"), "#top");
   await page.context().close();
 });
+
+test("on an encrypted site the destination length limit counts the fragment the service worker adds", async () => {
+  const landing = await deploy(["--no-copy", folder({ "index.html": "<h1>Landing</h1>", "404.html": "<h1>Landing</h1>" })]);
+  const landingOrigin = new URL(browserUrl(landing.url)).origin;
+  const destination = `${landingOrigin}/${Array(8).fill(":splat").join("/")}`;
+  const { url } = await deploy(["--no-copy", "-e", folder({ _redirects: `/out/*  ${destination}  302\n/out/*  /new  302\n`, "index.html": "<h1>Home</h1>", "new.html": "<h1>New</h1>" })]);
+  const origin = new URL(browserUrl(url)).origin;
+  const path = `/out/${"a".repeat(2000)}`;
+  const base = `${landingOrigin}/${Array(8).fill("a".repeat(2000)).join("/")}`;
+  const query = (total: number): string => `?q=${"b".repeat(total - base.length - 3)}`;
+  const page = await newPage();
+  await page.goto(browserUrl(url));
+  await waitForHeading(page, "Home");
+
+  await page.goto(`${origin}${path}${query(16_383)}`);
+  await waitForHeading(page, "Landing");
+  assert.equal(page.url(), `${base}${query(16_383)}#`, "a Location of 16,383 characters plus the added # is sent");
+
+  await page.goto(`${origin}${path}${query(16_384)}`);
+  await waitForHeading(page, "New");
+  assert.equal(new URL(page.url()).pathname, "/new", "one more character and the # passes the limit, so the next rule applies");
+  await page.context().close();
+});

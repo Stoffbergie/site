@@ -41,7 +41,7 @@ export async function serveSite(request: Request, env: Env, ctx: ExecutionContex
   if (pathname === null) return notFound();
   if (isReserved(pathname)) return notFound();
   const listed = { spa: deploy.index.spa, files: deploy.index.files, byPath: deploy.byPath };
-  const routed = route(listed, deploy.index.rules, pathname, url);
+  const routed = route(listed, deploy.index.rules, pathname, url, { privateSite: false });
   if (routed.kind === "redirect") return new Response(null, { status: routed.status, headers: { Location: routed.location, "Cache-Control": REVALIDATE } });
   const target = routed.target;
 
