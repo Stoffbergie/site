@@ -148,17 +148,22 @@ export async function storeDeploy(env: Env, request: Request, filename: string, 
 }
 
 function linkHint(encrypted: Encrypted | undefined): Record<string, string> {
-  if (encrypted?.name) return { encryptedName: encrypted.name };
-  if (encrypted?.linkSalt) return { linkSalt: encrypted.linkSalt };
-  return {};
+  const hint: Record<string, string> = {};
+  if (encrypted?.name) hint.encryptedName = encrypted.name;
+  if (encrypted?.linkSalt) hint.linkSalt = encrypted.linkSalt;
+  return hint;
 }
 
 export function isEncrypted(object: R2Object): boolean {
-  return encryptedName(object) !== null || object.customMetadata?.linkSalt !== undefined;
+  return encryptedName(object) !== null || linkSaltOf(object) !== null;
 }
 
 export function encryptedName(object: R2Object): string | null {
   return object.customMetadata?.encryptedName ?? null;
+}
+
+export function linkSaltOf(object: R2Object): string | null {
+  return object.customMetadata?.linkSalt ?? null;
 }
 
 export async function removeDeploy(env: Env, id: string, owner: string | undefined): Promise<void> {

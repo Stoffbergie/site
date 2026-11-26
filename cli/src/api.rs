@@ -35,6 +35,8 @@ pub struct NameEntry {
     pub id: Option<String>,
     #[serde(default)]
     pub encrypted: bool,
+    #[serde(default, rename = "linkSalt")]
+    pub link_salt: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -47,6 +49,7 @@ pub struct LinkHint {
 pub struct Pointed {
     pub url: String,
     pub encrypted: bool,
+    pub link_salt: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -309,11 +312,14 @@ pub enum Outcome {
     Stale,
 }
 
-pub fn deploy(key: &str, pack: Pack, name: Option<&str>) -> Result<Outcome> {
+pub fn deploy(key: &str, pack: Pack, name: Option<&str>, new_link: bool) -> Result<Outcome> {
     let total = pack.total;
     let mut url = format!("{}/", base_url());
     if let Some(name) = name {
         url = format!("{url}?name={name}");
+        if new_link {
+            url.push_str("&newLink=1");
+        }
     }
     let pack = Arc::new(pack);
     let authorization = format!("Bearer {key}");
@@ -362,8 +368,17 @@ pub fn point(key: &str, name: &str, id: &str) -> Result<Pointed> {
     })?;
     let response = refused_or(response)?;
     let encrypted = response.headers().contains_key("x-site-encrypted");
+    let link_salt = response
+        .headers()
+        .get("x-site-link-salt")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
     let url = answer(response)?.trim().to_string();
-    Ok(Pointed { url, encrypted })
+    Ok(Pointed {
+        url,
+        encrypted,
+        link_salt,
+    })
 }
 
 pub fn delete_deploy(key: &str, id: &str) -> Result<()> {

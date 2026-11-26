@@ -142,6 +142,16 @@ export async function forgetKey(): Promise<void> {
   await withStore("readwrite", (store) => store.delete(KEY_ENTRY));
 }
 
+export async function forgetKeyIfStored(key: LinkKey): Promise<void> {
+  await withStore("readwrite", (store) => {
+    const reading = store.get(KEY_ENTRY);
+    reading.addEventListener("success", () => {
+      if (isLinkKey(reading.result) && reading.result.fingerprint === key.fingerprint) store.delete(KEY_ENTRY);
+    });
+    return reading;
+  });
+}
+
 async function withStore(mode: IDBTransactionMode, action: (store: IDBObjectStore) => IDBRequest): Promise<unknown> {
   const database = await openDatabase();
   try {

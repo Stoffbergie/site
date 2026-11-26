@@ -58,6 +58,7 @@ Download a binary for macOS, Linux or Windows from [Releases](https://github.com
 | Deploy a folder                 | `site dist`                        |
 | Deploy it under a name          | `site dist -n todo`                |
 | Keep it private                 | `site dist -e`                     |
+| Replace a private name's link   | `site dist -e -n todo --new-link`  |
 | Deploy loose files at the root  | `site index.html style.css`        |
 | Deploy command output as a page | `cat page.html \| site -`          |
 | A single-page app               | `site dist --spa`                  |
@@ -111,7 +112,7 @@ What it protects and what it doesn't:
 - The server, and anyone with only the URL before `#`, cannot. They get a page saying the site is private.
 - The address of a page someone opens directly or hard-reloads reaches the server as a request path, like any URL. Contents, and the names of everything else, do not.
 - Re-opening the full link in a tab that already shows the site leaves the key in the address bar, where the page's scripts can read it, until the next navigation.
-- To take access away, remove the deploy with `site rm`, or release the name. There is no other revocation.
+- To take access away from a named site, deploy with `site dist -e -n todo --new-link`. It prints a new link and the old one stops opening the name; later deploys keep the new link. Remove the deploys made under the old link with `site rm`, since the old link still opens them at their own addresses. `site point` back at one of those deploys brings its old link back with it. An unnamed site has its own link; remove it with `site rm`. Older CLIs print the old link for a replaced name and refuse to deploy to it; update the CLI.
 - A name holding an encrypted site never turns public by accident: deploying to it without `-e` is refused.
 - It needs JavaScript and service workers, so it opens in current browsers but not in private windows that turn service workers off. Encrypting needs the CLI; there is no encrypted deploy through curl.
 

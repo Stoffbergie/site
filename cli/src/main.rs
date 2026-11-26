@@ -33,7 +33,9 @@ fn run(command: Command) -> Result<()> {
             if pointed.encrypted {
                 match key.secret() {
                     Ok(secret) => {
-                        let fragment = LinkKey::for_name(secret, &name)?.fragment();
+                        let link_key =
+                            LinkKey::for_name(secret, &name, pointed.link_salt.as_deref())?;
+                        let fragment = link_key.fragment();
                         link = with_key(&pointed.url, &fragment);
                     }
                     Err(_) => output::note(PRIVATE_LINKS_NEED_WHOLE_KEY),
@@ -65,7 +67,8 @@ fn run(command: Command) -> Result<()> {
             encrypt,
             spa,
             no_copy,
-        } => deploy(paths, name, spa, no_copy, encrypt),
+            new_link,
+        } => deploy(paths, name, spa, no_copy, encrypt, new_link),
     }
 }
 
@@ -75,12 +78,21 @@ fn deploy(
     spa: bool,
     no_copy: bool,
     encrypt: bool,
+    new_link: bool,
 ) -> Result<()> {
     let sources = pack::sources(&paths)?;
     let key = config::key()?;
     let link_key = match (encrypt, &name) {
         (false, _) => None,
-        (true, Some(name)) => Some(LinkKey::for_name(key.secret()?, name)?),
+        (true, Some(name)) => {
+            let secret = key.secret()?;
+            let link_salt = if new_link {
+                Some(crypto::random_salt()?)
+            } else {
+                current_link_salt(&key.api, name)?
+            };
+            Some(LinkKey::for_name(secret, name, link_salt.as_deref())?)
+        }
         (true, None) => Some(LinkKey::fresh(key.secret()?)?),
     };
     let server = api::base_url();
@@ -91,12 +103,12 @@ fn deploy(
     let pack = pack::Pack::build(&sources, spa, link_key.as_ref(), &known)?;
     let mut files = pack.files.clone();
     let reused = pack.reuses;
-    let mut outcome = api::deploy(&key.api, pack, name.as_deref())?;
+    let mut outcome = api::deploy(&key.api, pack, name.as_deref(), new_link)?;
     if reused && matches!(outcome, api::Outcome::Stale) {
         reuse::forget_all(&server, &key.api);
         let fresh = pack::Pack::build(&sources, spa, None, &reuse::Known::new())?;
         files = fresh.files.clone();
-        outcome = api::deploy(&key.api, fresh, name.as_deref())?;
+        outcome = api::deploy(&key.api, fresh, name.as_deref(), new_link)?;
     }
     let mut deployed = match outcome {
         api::Outcome::Deployed(deployed) => deployed,
@@ -138,6 +150,15 @@ fn deploy(
     Ok(())
 }
 
+fn current_link_salt(api_key: &str, name: &str) -> Result<Option<String>> {
+    let listing = api::list(api_key)?;
+    let current = listing
+        .names
+        .into_iter()
+        .find(|entry| entry.name == name && entry.encrypted);
+    Ok(current.and_then(|entry| entry.link_salt))
+}
+
 fn with_key(url: &str, fragment: &str) -> String {
     format!("{url}/#{fragment}")
 }
@@ -165,10 +186,9 @@ fn list() -> Result<()> {
             if name.encrypted {
                 let mut link = name.url.clone();
                 if let Some(secret) = secret {
-                    link = with_key(
-                        &name.url,
-                        &LinkKey::for_name(secret, &name.name)?.fragment(),
-                    );
+                    let link_key =
+                        LinkKey::for_name(secret, &name.name, name.link_salt.as_deref())?;
+                    link = with_key(&name.url, &link_key.fragment());
                 }
                 let details = format!("→ {target}  encrypted");
                 println!("{link:<40} {}", output::dim(&details));
@@ -194,7 +214,9 @@ fn list() -> Result<()> {
             if let Some(hint) = &deploy.encrypted {
                 if let Some(secret) = secret {
                     let link_key = match (&hint.name, &hint.link_salt) {
-                        (Some(name), _) => LinkKey::for_name(secret, name)?,
+                        (Some(name), link_salt) => {
+                            LinkKey::for_name(secret, name, link_salt.as_deref())?
+                        }
                         (None, Some(link_salt)) => LinkKey::for_salt(secret, link_salt)?,
                         (None, None) => {
                             anyhow::bail!(
