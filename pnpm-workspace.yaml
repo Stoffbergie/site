@@ -1,0 +1,19 @@
+packages:
+  - "."
+allowBuilds:
+  esbuild: true
+  sharp: false
+  workerd: true
+catalog:
+  vite: npm:@voidzero-dev/vite-plus-core@8.3.8001
+  vite-plus: 1.8.0
+minimumReleaseAgeExclude:
+  - "@cloudflare/vite-plugin@1.70.2"
+  - "@types/node@26.6.11"
+overrides:
+  vite@*: "catalog:"
+peerDependencyRules:
+  allowAny:
+    - vite
+  allowedVersions:
+    vite: "*"

@@ -1,0 +1,41 @@
+{
+  "name": "site",
+  "version": "0.1.0",
+  "private": false,
+  "description": "Static sites, live in one command.",
+  "homepage": "https://site.stoff.dev",
+  "bugs": {
+    "url": "https://github.com/Stoffbergie/site/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Stoffbergie/site.git"
+  },
+  "type": "module",
+  "scripts": {
+    "dev": "vp dev",
+    "build": "vp build",
+    "check": "vp check && cargo fmt --manifest-path cli/Cargo.toml --check && cargo clippy --manifest-path cli/Cargo.toml --locked -- -D warnings && vp test run",
+    "deploy": "vp build && wrangler deploy",
+    "prepare": "vp config"
+  },
+  "dependencies": {
+    "hono": "^4.13.22"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.70.2",
+    "@cloudflare/workers-types": "^5.20261125.1",
+    "@types/node": "^26.6.11",
+    "vite-plus": "catalog:",
+    "wrangler": "^4.168.0"
+  },
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "12.23.0",
+      "onFail": "download"
+    }
+  },
+  "packageManager": "pnpm@12.23.0"
+}
