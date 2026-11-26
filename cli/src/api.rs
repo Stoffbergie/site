@@ -172,6 +172,8 @@ fn agent() -> ureq::Agent {
         .timeout_connect(Some(Duration::from_secs(15)))
         .timeout_recv_body(Some(Duration::from_secs(STALL_SECONDS as u64)))
         .http_status_as_error(false)
+        .max_redirects(0)
+        .max_redirects_will_error(false)
         .tls_config(
             ureq::tls::TlsConfig::builder()
                 .root_certs(ureq::tls::RootCerts::PlatformVerifier)

@@ -214,3 +214,33 @@ test("the part of the key that makes private links is never sent to the server",
     assert.ok(!request.includes(privatePart), "the private part stays on the machine");
   }
 });
+
+test("the CLI never follows a redirect, so a request is never sent twice or somewhere else", async () => {
+  const elsewhere: string[] = [];
+  const target = createServer((request, response) => {
+    elsewhere.push(`${request.method} ${request.url}`);
+    request.resume();
+    request.on("end", () => response.writeHead(200).end("released\n"));
+  });
+  await new Promise<void>((resolve) => target.listen(0, "127.0.0.1", resolve));
+  const targetUrl = `http://127.0.0.1:${(target.address() as AddressInfo).port}`;
+  const redirecting: string[] = [];
+  const redirector = createServer((request, response) => {
+    redirecting.push(`${request.method} ${request.url}`);
+    request.resume();
+    request.on("end", () => response.writeHead(303, { Location: `${targetUrl}/names/moved` }).end());
+  });
+  await new Promise<void>((resolve) => redirector.listen(0, "127.0.0.1", resolve));
+  const redirectorUrl = `http://127.0.0.1:${(redirector.address() as AddressInfo).port}`;
+  try {
+    const removed = await runCli(["rm", "some-name"], { env: { SITE_URL: redirectorUrl } });
+    assert.equal(removed.code, 1);
+    const pointed = await runCli(["point", "some-name", "abcd1234"], { env: { SITE_URL: redirectorUrl } });
+    assert.equal(pointed.code, 1);
+  } finally {
+    await new Promise((resolve) => target.close(resolve));
+    await new Promise((resolve) => redirector.close(resolve));
+  }
+  assert.deepEqual(redirecting, ["DELETE /names/some-name", "PUT /names/some-name"]);
+  assert.deepEqual(elsewhere, []);
+});
