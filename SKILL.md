@@ -10,7 +10,7 @@ Produce a working URL for static files. Deploys stay until removed; there are no
 ## Choose what to deploy
 
 - Deploy the built output the request is about (`dist`, `build`, `public`, a single page), not the source tree. Build first if the request implies it; site does not build anything.
-- One folder deploys its contents as the site root. Several files each land at the root under their filename; a folder cannot be mixed with files. `-` deploys stdin as `index.html`. Dotfiles, dot-directories and `node_modules` are skipped, so check that the files the site needs are not hidden.
+- One folder deploys its contents as the site root. Several files each land at the root under their filename; a folder cannot be mixed with files. `-` deploys stdin as `index.html`. Dotfiles, dot-directories, symlinks and `node_modules` are skipped, so check that the files the site needs are not hidden.
 - Pass `--spa` only for client-side-routed apps that need `index.html` on unknown paths.
 - Pass `--no-copy` on every deploy, including in terminals and pseudo-terminals, unless the user explicitly asks to copy the link.
 - Check `command -v site` and `site --help`. If absent, install with `brew install stoffbergie/tap/site` where Homebrew is available, or use a binary from [official releases](https://github.com/Stoffbergie/site/releases).

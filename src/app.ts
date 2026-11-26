@@ -2,7 +2,7 @@ import { Hono, type Context } from "hono";
 import type { Env } from "./env";
 import { isDeployId, isSiteKey, nameProblem } from "./names";
 import { homePage, homeText, notFoundPage } from "./pages";
-import { deployKey, MAX_NAMES, namesPointingAt, ownedDeploys, ownedNames, readPointer, removeDeploy, removePointer, storeDeploy, writePointer, type Stored } from "./storage";
+import { deployKey, MAX_NAMES, namesPointingAt, ownedDeploys, ownedNames, readPointer, readPointerRecord, releasePointer, removeDeploy, storeDeploy, writePointer, type Stored } from "./storage";
 
 type AppContext = Context<{ Bindings: Env }>;
 type Caller = { kind: "admin" } | { kind: "key"; owner: string } | { kind: "anonymous" } | { kind: "invalid" };
@@ -80,10 +80,10 @@ app.delete("/names/:name", async (c) => {
   const caller = await identify(c);
   if (caller.kind !== "key" && caller.kind !== "admin") return needsKey(caller);
   const name = c.req.param("name");
-  const pointer = await readPointer(c.env, name);
-  if (!pointer) return text(`No name ${name}; run site ls to see yours.\n`, 404);
-  if (caller.kind === "key" && pointer.owner !== caller.owner) return text("That name belongs to another key.\n", 403);
-  await removePointer(c.env, name, pointer.owner);
+  const record = await readPointerRecord(c.env, name);
+  if (!record?.pointer) return text(`No name ${name}; run site ls to see yours.\n`, 404);
+  if (caller.kind === "key" && record.pointer.owner !== caller.owner) return text("That name belongs to another key.\n", 403);
+  if (!(await releasePointer(c.env, name, record.pointer.owner, record.etag))) return text("That name changed while releasing it; try again.\n", 409);
   return text("released\n");
 });
 
@@ -151,14 +151,14 @@ async function deploy(c: AppContext, filename: string): Promise<Response> {
 async function prepareClaim(c: AppContext, name: string, owner: string): Promise<Claim | Response> {
   const problem = nameProblem(name);
   if (problem !== null) return text(`${problem}\n`, 400);
-  const pointer = await readPointer(c.env, name);
-  if (pointer) {
-    if (pointer.owner !== owner) return text("That name is taken; pick another.\n", 409);
-    return { etag: pointer.etag };
+  const record = await readPointerRecord(c.env, name);
+  if (record?.pointer) {
+    if (record.pointer.owner !== owner) return text("That name is taken; pick another.\n", 409);
+    return { etag: record.etag };
   }
   const names = await ownedNames(c.env, owner);
   if (names.length >= MAX_NAMES) return text(`A key can hold ${MAX_NAMES} names; release one with site rm <name> first.\n`, 403);
-  return { etag: null };
+  return { etag: record?.etag ?? null };
 }
 
 function deployed(c: AppContext, stored: Stored, name: string | undefined): Response {

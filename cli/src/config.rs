@@ -25,8 +25,17 @@ pub fn key() -> Result<String> {
     }
     let key = generate()?;
     config.key = Some(key.clone());
-    save(&config)?;
-    Ok(key)
+    if save_first(&config)? {
+        return Ok(key);
+    }
+    load()?.key.with_context(|| {
+        format!(
+            "{} has no key; delete it and run the command again",
+            path()
+                .map(|path| path.display().to_string())
+                .unwrap_or_default()
+        )
+    })
 }
 
 pub fn replace(new_key: &str) -> Result<()> {
@@ -111,16 +120,33 @@ fn load() -> Result<Config> {
 
 fn save(config: &Config) -> Result<()> {
     let path = path()?;
+    let partial = write_partial(&path, config)?;
+    std::fs::rename(partial, &path)?;
+    Ok(())
+}
+
+fn save_first(config: &Config) -> Result<bool> {
+    let path = path()?;
+    let partial = write_partial(&path, config)?;
+    let linked = std::fs::hard_link(&partial, &path);
+    std::fs::remove_file(&partial)?;
+    match linked {
+        Ok(()) => Ok(true),
+        Err(error) if error.kind() == ErrorKind::AlreadyExists => Ok(false),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn write_partial(path: &std::path::Path, config: &Config) -> Result<PathBuf> {
     std::fs::create_dir_all(path.parent().context("config directory is missing")?)?;
-    let partial = path.with_extension("json.part");
+    let partial = path.with_extension(format!("json.{}.part", std::process::id()));
     std::fs::write(&partial, serde_json::to_vec_pretty(config)?)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&partial, std::fs::Permissions::from_mode(0o600))?;
     }
-    std::fs::rename(partial, &path)?;
-    Ok(())
+    Ok(partial)
 }
 
 fn path() -> Result<PathBuf> {

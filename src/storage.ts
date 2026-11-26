@@ -24,7 +24,8 @@ const MEMORY_ENTRIES = 500;
 export type Deploy = { id: string; index: PackIndex; dataStart: number; byPath: Map<string, number> };
 export type Stored = { id: string; files: number; size: number };
 export type StoreResult = { stored: Stored } | { problem: string; status: 400 | 411 | 413 };
-export type Pointer = { id: string; owner: string; etag: string };
+export type Pointer = { id: string; owner: string };
+export type PointerRecord = { etag: string; pointer: Pointer | null };
 
 const memory = new Map<string, { deploy: Deploy; loadedAt: number }>();
 
@@ -45,9 +46,8 @@ export function ownedNameKey(owner: string, name: string): string {
 }
 
 export async function storeDeploy(env: Env, request: Request, filename: string, owner: string | null): Promise<StoreResult> {
-  const body = await sizedBody(request);
+  const body = sizedBody(request);
   if ("problem" in body) return body;
-  if (body.length > MAX_DEPLOY_BYTES) return tooLarge();
 
   const taker = new StreamTaker(body.stream.getReader());
   const magic = await taker.take(PACK_MAGIC.byteLength);
@@ -144,29 +144,38 @@ function remember(id: string, deploy: Deploy): void {
   }
 }
 
-export async function readPointer(env: Env, name: string): Promise<Pointer | null> {
+export async function readPointerRecord(env: Env, name: string): Promise<PointerRecord | null> {
   const object = await env.SITES.head(nameKey(name));
   if (!object) return null;
-  const id = object.customMetadata?.id ?? "";
-  const owner = object.customMetadata?.owner ?? "";
-  return { id, owner, etag: object.etag };
+  const id = object.customMetadata?.id;
+  const owner = object.customMetadata?.owner;
+  if (!id || !owner) return { etag: object.etag, pointer: null };
+  return { etag: object.etag, pointer: { id, owner } };
+}
+
+export async function readPointer(env: Env, name: string): Promise<Pointer | null> {
+  const record = await readPointerRecord(env, name);
+  if (!record) return null;
+  return record.pointer;
 }
 
 export async function writePointer(env: Env, name: string, owner: string, id: string, previousEtag: string | null): Promise<boolean> {
-  let onlyIf: R2Conditional | Headers;
-  if (previousEtag === null) {
-    onlyIf = new Headers({ "if-none-match": "*" });
-  } else {
-    onlyIf = { etagMatches: previousEtag };
-  }
-  const written = await env.SITES.put(nameKey(name), "", { customMetadata: { id, owner }, onlyIf });
+  const written = await env.SITES.put(nameKey(name), crypto.randomUUID(), { customMetadata: { id, owner }, onlyIf: versionCondition(previousEtag) });
   if (!written) return false;
-  if (previousEtag === null) await env.SITES.put(ownedNameKey(owner, name), "");
+  await env.SITES.put(ownedNameKey(owner, name), "");
   return true;
 }
 
-export async function removePointer(env: Env, name: string, owner: string): Promise<void> {
-  await env.SITES.delete([nameKey(name), ownedNameKey(owner, name)]);
+export async function releasePointer(env: Env, name: string, owner: string, previousEtag: string): Promise<boolean> {
+  const written = await env.SITES.put(nameKey(name), crypto.randomUUID(), { onlyIf: versionCondition(previousEtag) });
+  if (!written) return false;
+  await env.SITES.delete(ownedNameKey(owner, name));
+  return true;
+}
+
+function versionCondition(previousEtag: string | null): R2Conditional | Headers {
+  if (previousEtag === null) return new Headers({ "if-none-match": "*" });
+  return { etagMatches: previousEtag };
 }
 
 export async function ownedNames(env: Env, owner: string): Promise<string[]> {
@@ -186,17 +195,14 @@ export async function namesPointingAt(env: Env, owner: string, id: string): Prom
   return names.filter((_, position) => pointers[position]?.id === id);
 }
 
-async function sizedBody(request: Request): Promise<{ stream: ReadableStream<Uint8Array>; length: number } | { problem: string; status: 411 | 413 }> {
+function sizedBody(request: Request): { stream: ReadableStream<Uint8Array>; length: number } | { problem: string; status: 411 | 413 } {
   const declared = request.headers.get("content-length");
-  if (declared !== null && request.body) {
-    const length = Number(declared);
-    if (length > MAX_DEPLOY_BYTES) return tooLarge();
-    return { stream: request.body, length };
+  const length = Number(declared);
+  if (declared === null || !request.body || !Number.isSafeInteger(length) || length <= 0) {
+    return { problem: "Send a file or a pack with a Content-Length to deploy.", status: 411 };
   }
-  const buffered = new Uint8Array(await request.arrayBuffer());
-  if (buffered.byteLength === 0) return { problem: "Send a file or a pack to deploy.", status: 411 };
-  if (buffered.byteLength > MAX_DEPLOY_BYTES) return tooLarge();
-  return { stream: new Blob([buffered]).stream(), length: buffered.byteLength };
+  if (length > MAX_DEPLOY_BYTES) return tooLarge();
+  return { stream: request.body, length };
 }
 
 function tooLarge(): { problem: string; status: 413 } {

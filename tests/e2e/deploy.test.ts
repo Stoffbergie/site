@@ -31,7 +31,9 @@ test("a deployed folder is browsable at its own URL with clean URLs and a 404 pa
   assert.equal((await visit(url, "/about")).text, "<h1>About</h1>");
   assert.equal((await visit(url, "/about.html")).text, "<h1>About</h1>");
   assert.equal((await visit(url, "/docs/")).text, "<h1>Docs</h1>");
-  assert.equal((await visit(url, "/docs")).text, "<h1>Docs</h1>");
+  const redirect = await visit(url, "/docs?page=2");
+  assert.equal(redirect.status, 308);
+  assert.equal(redirect.headers.location, "/docs/?page=2");
   assert.equal((await visit(url, "/style.css")).headers["content-type"], "text/css; charset=utf-8");
 
   const missing = await visit(url, "/nowhere");

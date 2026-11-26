@@ -63,7 +63,7 @@ Download a binary for macOS, Linux or Windows from [Releases](https://github.com
 | Roll a name back                | `site point todo k3m9xq2a`         |
 | Remove a deploy or a name       | `site rm k3m9xq2a`, `site rm todo` |
 
-Links go to stdout; details go to stderr. Dotfiles, dot-directories and `node_modules` are left out.
+Links go to stdout; details go to stderr. Dotfiles, dot-directories, symlinks and `node_modules` are left out.
 
 ## Names
 
@@ -103,7 +103,7 @@ site key site_…          # on the second
 | ------------- | ------------------------------------------ |
 | `/`           | `index.html`                               |
 | `/docs/`      | `docs/index.html`                          |
-| `/about`      | `about.html`, then `about/index.html`      |
+| `/about`      | `about.html`, or a redirect to `/about/`   |
 | Anything else | `404.html` with status 404, or a plain 404 |
 
 With `--spa`, unknown paths without a file extension serve `index.html`. With no `index.html`, a lone HTML file is the page at `/`, a single file is served at `/` and under its name, and anything else shows a file list.

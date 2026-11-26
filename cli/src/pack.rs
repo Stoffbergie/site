@@ -174,6 +174,10 @@ fn walk(directory: &Path, prefix: &str, found: &mut Vec<(String, Source)>) -> Re
             continue;
         }
         let path = entry.path();
+        if entry.file_type()?.is_symlink() {
+            crate::output::note(&format!("Skipped {}: it is a symlink", path.display()));
+            continue;
+        }
         let relative = format!("{prefix}{name}");
         let metadata = std::fs::metadata(&path)
             .with_context(|| format!("could not read {}", path.display()))?;

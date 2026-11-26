@@ -4,7 +4,7 @@ import type { PackFile } from "./pack";
 import { fileListPage } from "./pages";
 import { deployKey, EDGE_SECONDS, loadDeploy, readPointer, type Deploy } from "./storage";
 
-type Target = { kind: "file"; number: number; status: 200 | 404 } | { kind: "list" } | { kind: "missing" };
+type Target = { kind: "file"; number: number; status: 200 | 404 } | { kind: "folder" } | { kind: "list" } | { kind: "missing" };
 type ByteRange = { offset: number; length: number };
 
 const IMMUTABLE = "public, max-age=31536000, immutable";
@@ -31,12 +31,14 @@ export async function serveSite(request: Request, env: Env, ctx: ExecutionContex
   const deploy = await loadDeploy(env, id);
   if (!deploy) return noSite();
 
-  const pathname = decodePath(new URL(request.url).pathname);
+  const url = new URL(request.url);
+  const pathname = decodePath(url.pathname);
   if (pathname === null) return notFound();
   const target = resolve(deploy, pathname);
 
   if (target.kind === "missing") return notFound();
-  if (target.kind === "list") return listing(request, deploy, named, new URL(request.url).hostname);
+  if (target.kind === "folder") return new Response(null, { status: 308, headers: { Location: `${url.pathname}/${url.search}`, "Cache-Control": REVALIDATE } });
+  if (target.kind === "list") return listing(request, deploy, named, url.hostname);
   return serveFile(request, env, ctx, deploy, target.number, target.status, named);
 }
 
@@ -48,12 +50,13 @@ function resolve(deploy: Deploy, pathname: string): Target {
   if (relative === "" || relative.endsWith("/")) {
     candidates.push(`${relative}index.html`);
   } else {
-    candidates.push(relative, `${relative}.html`, `${relative}/index.html`);
+    candidates.push(relative, `${relative}.html`);
   }
   for (const candidate of candidates) {
     const number = byPath.get(candidate);
     if (number !== undefined) return { kind: "file", number, status: 200 };
   }
+  if (relative !== "" && byPath.has(`${relative}/index.html`)) return { kind: "folder" };
 
   if (relative === "") {
     if (index.files.length === 1) return { kind: "file", number: 0, status: 200 };
@@ -75,7 +78,9 @@ async function serveFile(request: Request, env: Env, ctx: ExecutionContext, depl
   const file = deploy.index.files[number];
   const etag = `"${deploy.id}-${number}"`;
   const headers = contentHeaders(file.type, etag, status, named);
-  const acceptsGzip = /\bgzip\b/.test(request.headers.get("accept-encoding") ?? "");
+  let clientEncodings = request.headers.get("accept-encoding") ?? "";
+  if (typeof request.cf?.clientAcceptEncoding === "string") clientEncodings = request.cf.clientAcceptEncoding;
+  const acceptsGzip = /\bgzip\b/.test(clientEncodings);
 
   if (file.gzip) {
     headers.set("Vary", "Accept-Encoding");
@@ -85,7 +90,9 @@ async function serveFile(request: Request, env: Env, ctx: ExecutionContext, depl
   if (status === 200 && request.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
 
   const rangeHeader = request.headers.get("range");
-  if (!file.gzip && status === 200 && rangeHeader !== null) {
+  const ifRange = request.headers.get("if-range");
+  const rangeStillValid = ifRange === null || ifRange === etag;
+  if (!file.gzip && status === 200 && rangeHeader !== null && rangeStillValid) {
     const range = parseRange(rangeHeader, file.length);
     if (range === null) {
       headers.set("Content-Range", `bytes */${file.length}`);

@@ -70,7 +70,5 @@ export function nameProblem(name: string): string | null {
 export function siteLabel(hostname: string, domain: string): string | null {
   const suffix = `.${domain}`;
   if (!hostname.endsWith(suffix)) return null;
-  const label = hostname.slice(0, -suffix.length);
-  if (label.includes(".")) return null;
-  return label;
+  return hostname.slice(0, -suffix.length);
 }
