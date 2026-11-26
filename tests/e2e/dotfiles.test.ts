@@ -17,7 +17,9 @@ const wellKnown = {
   ".well-known/host-meta": `<?xml version="1.0"?><XRD xmlns="http://docs.oasis-open.org/ns/xri/xrd-1.0"></XRD>`,
   ".well-known/openid-configuration": JSON.stringify({ issuer: "https://example.com" }),
   ".well-known/mta-sts.txt": "version: STSv1\nmode: enforce\nmx: mail.example.com\nmax_age: 86400\n",
-  ".well-known/change-password.html": "<h1>Change your password</h1>"
+  ".well-known/change-password.html": "<h1>Change your password</h1>",
+  ".well-known/oauth-authorization-server/issuer1": JSON.stringify({ issuer: "https://example.com/issuer1" }),
+  "tenant/.well-known/openid-configuration": JSON.stringify({ issuer: "https://example.com/tenant" })
 };
 
 const secretsAndJunk = {
@@ -47,7 +49,9 @@ const servedTypes: Record<string, string> = {
   "/.well-known/webfinger": "application/jrd+json; charset=utf-8",
   "/.well-known/host-meta": "application/xrd+xml; charset=utf-8",
   "/.well-known/openid-configuration": "application/json; charset=utf-8",
-  "/.well-known/mta-sts.txt": "text/plain; charset=utf-8"
+  "/.well-known/mta-sts.txt": "text/plain; charset=utf-8",
+  "/.well-known/oauth-authorization-server/issuer1": "application/json; charset=utf-8",
+  "/tenant/.well-known/openid-configuration": "application/json; charset=utf-8"
 };
 
 const neverServed = [
@@ -87,7 +91,7 @@ async function checkPublic(url: string): Promise<void> {
 test(".well-known deploys with the right types while secrets and junk stay behind, on id and named hosts", async () => {
   const name = uniqueName("dots");
   const { url, run } = await deploy(["--no-copy", "-n", name, site()]);
-  assert.match(run.stderr, /11 files/);
+  assert.match(run.stderr, /13 files/);
   const leftOut = run.stderr.split("\n").find((line) => line.startsWith("Left out")) ?? "";
   assert.match(leftOut, /\.env/);
   assert.match(leftOut, /names starting with a dot stay private, except \.well-known/);
@@ -126,11 +130,11 @@ test("loose dot-files follow the same rule", async () => {
 
 test("an encrypted site keeps the same rule and serves .well-known in the browser", async () => {
   const { url, run } = await deploy(["--no-copy", "-e", site()]);
-  assert.match(run.stderr, /11 files/);
+  assert.match(run.stderr, /13 files/);
   assert.match(run.stderr, /^Left out .*\.env/m);
   assert.match(run.stderr, /\.well-known files on a private site open only in a browser with the link/);
   const meta = JSON.parse((await visit(hostOf(url), "/__site/meta")).text) as { entries: number[] };
-  assert.equal(meta.entries.length, 12);
+  assert.equal(meta.entries.length, 14);
 
   const browser = await chromium.launch();
   try {
