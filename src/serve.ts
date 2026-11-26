@@ -7,7 +7,7 @@ import type { PackFile } from "./pack";
 import { fileListPage, privateSitePage } from "./pages";
 import { decodePath, isReserved, parseRange, redirectLocation } from "./resolve";
 import { applyHeaderRules, isConfigFile, route } from "./rules";
-import { deployKey, EDGE_SECONDS, loadDeploy, readPointer, type Deploy } from "./storage";
+import { deployKey, EDGE_SECONDS, EXPIRES_HEADER, expiryOf, loadDeploy, readPointer, type Deploy } from "./storage";
 
 const ENTRY_PATH = /^\/__site\/entries\/(0|[1-9]\d*)$/;
 
@@ -17,8 +17,9 @@ const SMALL_FILE_BYTES = 65_536;
 const FILE_MEMORY_BYTES = 16_000_000;
 const NEIGHBORHOOD_BYTES = 1_048_576;
 const NEIGHBORS_PER_READ = 32;
+const FILE_MEMORY_ENTRY_BYTES = 1024;
 
-const fileMemory = new Map<string, { bytes: Uint8Array; loadedAt: number }>();
+const fileMemory = new Map<string, { bytes: Uint8Array; expiresAt: number }>();
 let fileMemoryBytes = 0;
 
 export async function serveSite(request: Request, env: Env, ctx: ExecutionContext, label: string): Promise<Response> {
@@ -92,12 +93,14 @@ function script(source: string, extraHeaders: Record<string, string>): Response 
 
 async function serveFile(request: Request, env: Env, ctx: ExecutionContext, deploy: Deploy, number: number, status: 200 | 404, named: boolean): Promise<Response> {
   const file = deploy.index.files[number];
-  const etag = `"${file.origin ?? `${deploy.id}-${number}`}"`;
-  const headers = contentHeaders(file.type, etag, status, named);
   let clientEncodings = request.headers.get("accept-encoding") ?? "";
   if (typeof request.cf?.clientAcceptEncoding === "string") clientEncodings = request.cf.clientAcceptEncoding;
   const encoding = storedEncoding(file);
   const clientAccepts = encoding !== null && acceptsEncoding(clientEncodings, encoding);
+  let representation = file.origin ?? `${deploy.id}-${number}`;
+  if (encoding !== null && !clientAccepts) representation = `${representation}-identity`;
+  const etag = `"${representation}"`;
+  const headers = contentHeaders(file.type, etag, status, named);
 
   if (encoding !== null) {
     headers.set("Vary", "Accept-Encoding");
@@ -138,12 +141,13 @@ async function storedBytes(env: Env, ctx: ExecutionContext, deploy: Deploy, file
   const small = file.length <= SMALL_FILE_BYTES;
   const memoryKey = `${deploy.id}/${number}`;
   const remembered = fileMemory.get(memoryKey);
-  if (remembered && Date.now() - remembered.loadedAt < EDGE_SECONDS * 1000) return new Blob([remembered.bytes]).stream();
+  if (remembered && Date.now() < remembered.expiresAt) return new Blob([remembered.bytes]).stream();
   const cacheKey = new Request(`https://${env.SITE_DOMAIN}/__file/${deploy.id}/${number}`);
   const cached = await caches.default.match(cacheKey);
   if (cached?.body && small) {
+    const expiresAt = expiryOf(cached);
     const bytes = new Uint8Array(await cached.arrayBuffer());
-    rememberFile(memoryKey, bytes);
+    rememberFile(memoryKey, bytes, expiresAt);
     return new Blob([bytes]).stream();
   }
   if (cached?.body) return cached.body;
@@ -174,29 +178,35 @@ async function readNeighborhood(env: Env, ctx: ExecutionContext, deploy: Deploy,
   const object = await env.SITES.get(deployKey(deploy.id), { range: { offset: deploy.dataStart + start, length: last.offset + last.length - start } });
   if (!object) return null;
   const window = new Uint8Array(await object.arrayBuffer());
+  const expiresAt = Date.now() + EDGE_SECONDS * 1000;
   const puts: Promise<void>[] = [];
   for (const neighbor of neighbors) {
     const file = files[neighbor];
     const bytes = window.slice(file.offset - start, file.offset - start + file.length);
-    rememberFile(`${deploy.id}/${neighbor}`, bytes);
+    rememberFile(`${deploy.id}/${neighbor}`, bytes, expiresAt);
     const cacheKey = new Request(`https://${env.SITE_DOMAIN}/__file/${deploy.id}/${neighbor}`);
-    puts.push(caches.default.put(cacheKey, new Response(bytes, { headers: { "Cache-Control": `public, max-age=${EDGE_SECONDS}` } })));
+    const headers = { "Cache-Control": `public, max-age=${EDGE_SECONDS}`, [EXPIRES_HEADER]: String(expiresAt) };
+    puts.push(caches.default.put(cacheKey, new Response(bytes, { headers })));
   }
   ctx.waitUntil(Promise.all(puts));
   return window.slice(0, files[number].length);
 }
 
-function rememberFile(key: string, bytes: Uint8Array): void {
+function rememberFile(key: string, bytes: Uint8Array, expiresAt: number): void {
   const previous = fileMemory.get(key);
-  if (previous) fileMemoryBytes -= previous.bytes.byteLength;
+  if (previous) fileMemoryBytes -= memoryCharge(previous.bytes);
   fileMemory.delete(key);
-  fileMemory.set(key, { bytes, loadedAt: Date.now() });
-  fileMemoryBytes += bytes.byteLength;
+  fileMemory.set(key, { bytes, expiresAt });
+  fileMemoryBytes += memoryCharge(bytes);
   while (fileMemoryBytes > FILE_MEMORY_BYTES) {
     const [oldestKey, oldest] = fileMemory.entries().next().value as [string, { bytes: Uint8Array }];
     fileMemory.delete(oldestKey);
-    fileMemoryBytes -= oldest.bytes.byteLength;
+    fileMemoryBytes -= memoryCharge(oldest.bytes);
   }
+}
+
+function memoryCharge(bytes: Uint8Array): number {
+  return bytes.byteLength + FILE_MEMORY_ENTRY_BYTES;
 }
 
 function listing(request: Request, deploy: Deploy, named: boolean, hostname: string): Response {

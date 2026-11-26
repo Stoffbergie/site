@@ -214,14 +214,12 @@ async function deploy(c: AppContext, filename: string): Promise<Response> {
 
 async function pointName(c: AppContext, name: string, owner: string, id: string, claim: Claim, encrypted: boolean): Promise<Pointing> {
   let expected = claim.etag;
-  let markOwner = claim.pointedId === null;
   for (let attempt = 0; attempt < POINTER_ATTEMPTS; attempt += 1) {
-    if (await writePointer(c.env, name, owner, id, expected, markOwner)) return "pointed";
+    if (await writePointer(c.env, name, owner, id, expected)) return "pointed";
     const current = await readPointerRecord(c.env, name);
     if (current === null || current.pointer?.owner !== owner) return "lost";
     if (!encrypted && (await holdsEncrypted(c, current.pointer.id))) return "holds encrypted";
     expected = current.etag;
-    markOwner = false;
   }
   return "lost";
 }

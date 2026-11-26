@@ -4,6 +4,8 @@ import {
   decodeIndex,
   encodeHeader,
   INDEX_LENGTH_BYTES,
+  indexWrittenByWorker,
+  MAX_DEPLOY_BYTES,
   MAX_FILES,
   MAX_INDEX_BYTES,
   PREAMBLE_LENGTH,
@@ -26,13 +28,16 @@ const MAX_COPIES = 100;
 const HEAD_READ_BYTES = 65_536;
 const UNKNOWN_TYPE = "application/octet-stream";
 const COPIES_IN_FLIGHT = 4;
+const MAX_COMPRESSED_INDEX_BYTES = 262_144;
+const INFLATE_PIECE_BYTES = 8;
+const NOTHING_BUFFERED = Symbol("nothing buffered");
 
-export type CompactPack = { index: PackIndex; source: ReadableStream<Uint8Array>; total: number } | { problem: string; status: 400 | 412 };
+export type CompactPack = { index: PackIndex; source: ReadableStream<Uint8Array>; total: number; sourceGone: () => boolean } | { problem: string; status: 400 | 412 | 413 };
 
 type Reuse = { id: string; file: number };
 type CompactEntry = { path: string; length: number; type: string; encoding: "br" | "gzip" | null; reuse: Reuse | null };
-type Earlier = { files: PackFile[]; dataStart: number };
-type Segment = { kind: "body"; length: number } | { kind: "copy"; id: string; offset: number; length: number };
+type Earlier = { files: PackFile[]; dataStart: number; etag: string };
+type Segment = { kind: "body"; length: number } | { kind: "copy"; id: string; etag: string; offset: number; length: number };
 
 const STALE = { problem: "An earlier deploy this one builds on is gone; deploy again.", status: 412 as const };
 
@@ -46,7 +51,7 @@ export async function readCompactPack(env: Env, taker: StreamTaker, bodyLength: 
   if (lengthBytes.byteLength < INDEX_LENGTH_BYTES) return malformed("The pack ends before its index.");
   const compressedLength = new DataView(lengthBytes.buffer, lengthBytes.byteOffset, lengthBytes.byteLength).getUint32(0);
   const dataLength = bodyLength - COMPACT_MAGIC.byteLength - INDEX_LENGTH_BYTES - compressedLength;
-  if (compressedLength > MAX_INDEX_BYTES) return malformed("The pack index is too large.");
+  if (compressedLength > MAX_COMPRESSED_INDEX_BYTES) return malformed("The pack index is too large.");
   if (dataLength < 0) return malformed("The pack ends before its index.");
   const compressed = await taker.take(compressedLength);
   const json = await inflate(compressed);
@@ -73,7 +78,7 @@ export async function readCompactPack(env: Env, taker: StreamTaker, bodyLength: 
       const source = earlier.get(entry.reuse.id) as Earlier;
       const original = source.files[entry.reuse.file];
       if (!original || original.length !== entry.length || encodingOf(original) !== entry.encoding) return STALE;
-      addSegment(segments, { kind: "copy", id: entry.reuse.id, offset: source.dataStart + original.offset, length: entry.length });
+      addSegment(segments, { kind: "copy", id: entry.reuse.id, etag: source.etag, offset: source.dataStart + original.offset, length: entry.length });
       file.origin = original.origin ?? `${entry.reuse.id}-${entry.reuse.file}`;
     } else {
       addSegment(segments, { kind: "body", length: entry.length });
@@ -84,10 +89,14 @@ export async function readCompactPack(env: Env, taker: StreamTaker, bodyLength: 
   }
   if (bodyBytes !== dataLength) return malformed("The pack's file lengths do not add up to the upload size.");
   if (segments.filter((segment) => segment.kind === "copy").length > MAX_COPIES) return malformed(`A deploy can reuse at most ${MAX_COPIES} runs of earlier files.`);
+  if (offset > MAX_DEPLOY_BYTES) return { problem: "Deploys are limited to 100 MB; leave out large files or host them elsewhere.", status: 413 };
   const index: PackIndex = { spa: entries.spa, files };
   if (entries.rules !== undefined) index.rules = entries.rules;
   const header = encodeHeader(index);
-  return { index, source: assemble(env, header, segments, taker.remaining([])), total: header.byteLength + offset };
+  if (header.byteLength - PREAMBLE_LENGTH > MAX_INDEX_BYTES) return malformed("The pack index is too large.");
+  const copies = { gone: false };
+  const source = assemble(env, header, segments, taker.remaining([]), owner as string, copies);
+  return { index, source, total: header.byteLength + offset, sourceGone: () => copies.gone };
 }
 
 function addSegment(segments: Segment[], next: Segment): void {
@@ -104,19 +113,26 @@ function addSegment(segments: Segment[], next: Segment): void {
   segments.push(next);
 }
 
-function assemble(env: Env, header: Uint8Array, segments: Segment[], body: ReadableStream<Uint8Array>): ReadableStream<Uint8Array> {
+function assemble(env: Env, header: Uint8Array, segments: Segment[], body: ReadableStream<Uint8Array>, owner: string, copies: { gone: boolean }): ReadableStream<Uint8Array> {
   const reader = body.getReader();
   let leftover: Uint8Array = new Uint8Array(0);
   let position = -1;
   let bodyLeft = 0;
   let copying: ReadableStreamDefaultReader<Uint8Array> | null = null;
+  let copyLeft = 0;
   const fetches = new Map<number, Promise<R2ObjectBody | null>>();
+  const sourceGone = (controller: ReadableStreamDefaultController<Uint8Array>): void => {
+    copies.gone = true;
+    controller.error(new Error("An earlier deploy disappeared or changed while copying."));
+  };
   const prefetch = (from: number): void => {
     let inFlight = [...fetches.keys()].filter((index) => index >= from).length;
     for (let index = from; index < segments.length && inFlight < COPIES_IN_FLIGHT; index += 1) {
       const segment = segments[index];
       if (segment.kind !== "copy" || fetches.has(index)) continue;
-      const fetched = env.SITES.get(`d/${segment.id}`, { range: { offset: segment.offset, length: segment.length } }).catch(() => null);
+      const fetched = env.SITES.get(`d/${segment.id}`, { range: { offset: segment.offset, length: segment.length }, onlyIf: { etagMatches: segment.etag } })
+        .then((object) => sameSource(object, segment.etag, owner))
+        .catch(() => null);
       fetches.set(index, fetched);
       inFlight += 1;
     }
@@ -131,9 +147,24 @@ function assemble(env: Env, header: Uint8Array, segments: Segment[], body: Reada
           return;
         }
         if (copying !== null) {
-          const { done, value } = await copying.read();
-          if (!done) {
-            controller.enqueue(value);
+          let read: ReadableStreamReadResult<Uint8Array>;
+          try {
+            read = await copying.read();
+          } catch {
+            sourceGone(controller);
+            return;
+          }
+          if (!read.done) {
+            copyLeft -= read.value.byteLength;
+            if (copyLeft < 0) {
+              sourceGone(controller);
+              return;
+            }
+            controller.enqueue(read.value);
+            return;
+          }
+          if (copyLeft !== 0) {
+            sourceGone(controller);
             return;
           }
           copying = null;
@@ -175,10 +206,11 @@ function assemble(env: Env, header: Uint8Array, segments: Segment[], body: Reada
         fetches.delete(position);
         prefetch(position + 1);
         if (!object) {
-          controller.error(new Error("An earlier deploy disappeared while copying."));
+          sourceGone(controller);
           return;
         }
         copying = object.body.getReader();
+        copyLeft = segment.length;
       }
     },
     async cancel(reason) {
@@ -189,18 +221,26 @@ function assemble(env: Env, header: Uint8Array, segments: Segment[], body: Reada
 }
 
 async function loadEarlier(env: Env, id: string, owner: string | null): Promise<Earlier | null> {
+  if (owner === null) return null;
   const start = await env.SITES.get(`d/${id}`, { range: { offset: 0, length: HEAD_READ_BYTES } });
-  if (start === null || owner === null || start.customMetadata?.owner !== owner) return null;
+  if (start === null || start.customMetadata?.owner !== owner) return null;
   let bytes = new Uint8Array(await start.arrayBuffer());
   const headerLength = PREAMBLE_LENGTH + readIndexLength(bytes);
   if (headerLength > bytes.byteLength) {
-    const whole = await env.SITES.get(`d/${id}`, { range: { offset: 0, length: headerLength } });
+    const whole = sameSource(await env.SITES.get(`d/${id}`, { range: { offset: 0, length: headerLength }, onlyIf: { etagMatches: start.etag } }), start.etag, owner);
     if (whole === null) return null;
     bytes = new Uint8Array(await whole.arrayBuffer());
   }
-  const index = decodeIndex(bytes.subarray(PREAMBLE_LENGTH, headerLength));
+  if (bytes.byteLength < headerLength) return null;
+  const index = decodeIndex(bytes.subarray(PREAMBLE_LENGTH, headerLength), indexWrittenByWorker(start));
   if (index.encrypted) return null;
-  return { files: index.files, dataStart: headerLength };
+  return { files: index.files, dataStart: headerLength, etag: start.etag };
+}
+
+function sameSource(object: R2ObjectBody | R2Object | null, etag: string, owner: string): R2ObjectBody | null {
+  if (object === null || !("body" in object)) return null;
+  if (object.etag !== etag || object.customMetadata?.owner !== owner) return null;
+  return object;
 }
 
 function encodingOf(file: PackFile): "br" | "gzip" | null {
@@ -256,23 +296,56 @@ function malformed(problem: string): { problem: string; status: 400 } {
 }
 
 async function inflate(compressed: Uint8Array): Promise<Uint8Array | null> {
-  const reader = new Blob([compressed]).stream().pipeThrough(new DecompressionStream("brotli")).getReader();
+  const decompression = new DecompressionStream("brotli");
+  const writer = decompression.writable.getWriter();
+  const reader = decompression.readable.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
+  let nextRead = reader.read();
   try {
+    for (let start = 0; start < compressed.byteLength; start += INFLATE_PIECE_BYTES) {
+      await writer.write(compressed.subarray(start, start + INFLATE_PIECE_BYTES));
+      await pendingEventsDelivered();
+      while (true) {
+        const result = await Promise.race([nextRead, nothingBuffered()]);
+        if (result === NOTHING_BUFFERED) break;
+        if (result.done) return join(chunks, total);
+        total += result.value.byteLength;
+        if (total > MAX_INDEX_BYTES) {
+          await reader.cancel();
+          return null;
+        }
+        chunks.push(result.value);
+        nextRead = reader.read();
+      }
+    }
+    void writer.close().catch(() => undefined);
     while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      total += value.byteLength;
+      const result = await nextRead;
+      if (result.done) return join(chunks, total);
+      total += result.value.byteLength;
       if (total > MAX_INDEX_BYTES) {
         await reader.cancel();
         return null;
       }
-      chunks.push(value);
+      chunks.push(result.value);
+      nextRead = reader.read();
     }
   } catch {
     return null;
   }
+}
+
+async function pendingEventsDelivered(): Promise<void> {
+  await new Blob([new Uint8Array(1)]).stream().getReader().read();
+}
+
+async function nothingBuffered(): Promise<typeof NOTHING_BUFFERED> {
+  for (let tick = 0; tick < 16; tick += 1) await Promise.resolve();
+  return NOTHING_BUFFERED;
+}
+
+function join(chunks: Uint8Array[], total: number): Uint8Array {
   const joined = new Uint8Array(total);
   let position = 0;
   for (const chunk of chunks) {
