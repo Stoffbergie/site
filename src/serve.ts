@@ -5,7 +5,7 @@ import type { Env } from "./env";
 import { isDeployId, nameProblem } from "./names";
 import type { PackFile } from "./pack";
 import { fileListPage, privateSitePage } from "./pages";
-import { decodePath, parseRange, redirectLocation, resolve } from "./resolve";
+import { decodePath, isReserved, parseRange, redirectLocation, resolve } from "./resolve";
 import { deployKey, EDGE_SECONDS, loadDeploy, readPointer, type Deploy } from "./storage";
 
 const ENTRY_PATH = /^\/__site\/entries\/(0|[1-9]\d*)$/;
@@ -36,9 +36,9 @@ export async function serveSite(request: Request, env: Env, ctx: ExecutionContex
 
   const url = new URL(request.url);
   if (deploy.index.encrypted) return serveEncrypted(request, env, ctx, deploy, named, url.pathname);
-  if (url.pathname.startsWith("/__site/")) return notFound();
   const pathname = decodePath(url.pathname);
   if (pathname === null) return notFound();
+  if (isReserved(pathname)) return notFound();
   const target = resolve({ spa: deploy.index.spa, files: deploy.index.files, byPath: deploy.byPath }, pathname);
 
   if (target.kind === "missing") return notFound();

@@ -105,6 +105,10 @@ export function redirectLocation(path: string, url: URL): string | null {
   return location;
 }
 
+export function isReserved(pathname: string): boolean {
+  return collapseSlashes(pathname).startsWith("/__site/");
+}
+
 function collapseSlashes(pathname: string): string {
   return pathname.replace(/\/{2,}/g, "/");
 }

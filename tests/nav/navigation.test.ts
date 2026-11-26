@@ -725,6 +725,20 @@ add("viteSpa", "missing asset in a single-page app is a 404", async (t) => {
   await warm(t, "/", "spa-home");
   assert.equal(await t.eval(`fetch("/assets/missing-9z.js").then((r) => r.status)`), 404);
 });
+add("viteSpa", "reserved paths spelled with a doubled slash or percent-encoding never reach the app", async (t) => {
+  await warm(t, "/", "spa-home");
+  for (const path of ["//__site/meta", "/%5F%5Fsite/meta", "//__site/entries/0"]) {
+    const answer = await t.eval<{ status: number; type: string; bootstrap: boolean }>(
+      `fetch(location.origin + ${JSON.stringify(path)}).then((r) => ({ status: r.status, type: r.headers.get("content-type"), bootstrap: r.headers.has("x-site-bootstrap") }))`
+    );
+    if (t.mode === "public") {
+      assert.equal(answer.status, 404, path);
+      assert.match(answer.type, /^text\/plain/, path);
+    } else {
+      assert.equal(answer.bootstrap, true, path);
+    }
+  }
+});
 add("spaWithNotFound", "a real 404.html wins over guessing a single-page app", async (t) => {
   await warm(t, "/", "spa-home");
   const response = await t.goto("/users/3");

@@ -1,5 +1,5 @@
 import { fileListPage } from "../pages";
-import { decodePath, parseRange, redirectLocation, resolve, type ByteRange, type Target } from "../resolve";
+import { decodePath, isReserved, parseRange, redirectLocation, resolve, type ByteRange, type Target } from "../resolve";
 import { CHUNK_SIZE, chunkCount, fetchEntry, fetchMeta, NotPrivate, openChunk, openDeploy, readKey, SEALED_CHUNK_SIZE, TAG_SIZE, WrongKey, type Meta, type Site } from "./site";
 
 type ExtendableEvent = Event & { waitUntil(promise: Promise<unknown>): void };
@@ -39,7 +39,8 @@ worker.addEventListener("fetch", (event) => {
   const request = event.request;
   const url = new URL(request.url);
   if (url.origin !== worker.location.origin) return;
-  if (url.pathname.startsWith("/__site/")) return;
+  const pathname = decodePath(url.pathname);
+  if (pathname !== null && isReserved(pathname)) return;
   if (request.method !== "GET" && request.method !== "HEAD") return;
   event.respondWith(answer(request, url));
 });
