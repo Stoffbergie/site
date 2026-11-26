@@ -10,7 +10,7 @@ Produce a working URL for static files. Deploys stay until removed; there are no
 ## Choose what to deploy
 
 - Deploy the built output the request is about (`dist`, `build`, `public`, a single page), not the source tree. Build first if the request implies it; site does not build anything.
-- One folder deploys its contents as the site root. Several files each land at the root under their filename; a folder cannot be mixed with files. `-` deploys stdin as `index.html`. Dotfiles, dot-directories, symlinks and `node_modules` are skipped, so check that the files the site needs are not hidden.
+- One folder deploys its contents as the site root. Several files each land at the root under their filename; a folder cannot be mixed with files. `-` deploys stdin as `index.html`. Names starting with a dot stay private (`.env`, `.git`, `.npmrc`, editor folders) except `.well-known/`, which deploys with JSON, JRD and XRD types for its extensionless files; the CLI names what it left out on stderr. Symlinks and `node_modules` are skipped. Private sites serve `.well-known/` only inside the browser, so use a public deploy for files that apps or certificate authorities fetch.
 - Pass `--spa` only for client-side-routed apps that need `index.html` on unknown paths.
 - Pass `-e` when the content is private or the user asks for it. The site is encrypted on this machine and only the full link, including the key after `#`, opens it, in a browser with JavaScript. The link is the secret: report it only to the user and never log it elsewhere.
 - Pass `--no-copy` on every deploy, including in terminals and pseudo-terminals, unless the user explicitly asks to copy the link.

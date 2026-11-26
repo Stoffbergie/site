@@ -5,6 +5,7 @@ use crypto::LinkKey;
 mod api;
 mod config;
 mod crypto;
+mod dotfiles;
 mod output;
 mod pack;
 
