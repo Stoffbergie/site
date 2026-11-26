@@ -12,7 +12,7 @@ test("a name points at the latest deploy and a redeploy is visible on the very n
 
   const before = await visit(first.url);
   assert.equal(before.text, "<h1>One</h1>");
-  assert.equal(before.headers["cache-control"], "no-cache");
+  assert.equal(before.headers["cache-control"], "no-cache, no-transform");
   const revalidated = await visit(first.url, "/", { headers: { "if-none-match": before.headers.etag as string } });
   assert.equal(revalidated.status, 304);
 

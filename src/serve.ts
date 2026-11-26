@@ -7,8 +7,8 @@ import { deployKey, EDGE_SECONDS, loadDeploy, readPointer, type Deploy } from ".
 type Target = { kind: "file"; number: number; status: 200 | 404 } | { kind: "folder" } | { kind: "list" } | { kind: "missing" };
 type ByteRange = { offset: number; length: number };
 
-const IMMUTABLE = "public, max-age=31536000, immutable";
-const REVALIDATE = "no-cache";
+const IMMUTABLE = "public, max-age=31536000, immutable, no-transform";
+const REVALIDATE = "no-cache, no-transform";
 
 export async function serveSite(request: Request, env: Env, ctx: ExecutionContext, label: string): Promise<Response> {
   if (request.method !== "GET" && request.method !== "HEAD") {
@@ -87,7 +87,7 @@ async function serveFile(request: Request, env: Env, ctx: ExecutionContext, depl
   } else {
     headers.set("Accept-Ranges", "bytes");
   }
-  if (status === 200 && request.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
+  if (status === 200 && sameVersion(request, etag)) return new Response(null, { status: 304, headers });
 
   const rangeHeader = request.headers.get("range");
   const ifRange = request.headers.get("if-range");
@@ -134,7 +134,7 @@ async function storedBytes(env: Env, ctx: ExecutionContext, deploy: Deploy, file
 function listing(request: Request, deploy: Deploy, named: boolean, hostname: string): Response {
   const etag = `"${deploy.id}-list"`;
   const headers = contentHeaders("text/html; charset=utf-8", etag, 200, named);
-  if (request.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
+  if (sameVersion(request, etag)) return new Response(null, { status: 304, headers });
   if (request.method === "HEAD") return new Response(null, { headers });
   return new Response(fileListPage(hostname, deploy.index.files), { headers });
 }
@@ -149,6 +149,12 @@ function contentHeaders(type: string, etag: string, status: number, named: boole
     "Cache-Control": cacheControl,
     ETag: etag
   });
+}
+
+function sameVersion(request: Request, etag: string): boolean {
+  const presented = request.headers.get("if-none-match");
+  if (presented === null) return false;
+  return presented.replace(/^W\//, "") === etag;
 }
 
 function parseRange(header: string, size: number): ByteRange | null {

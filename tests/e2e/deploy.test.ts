@@ -26,7 +26,7 @@ test("a deployed folder is browsable at its own URL with clean URLs and a 404 pa
   assert.equal(home.headers["content-type"], "text/html; charset=utf-8");
   assert.equal(home.headers["x-content-type-options"], "nosniff");
   assert.equal(home.headers["access-control-allow-origin"], "*");
-  assert.equal(home.headers["cache-control"], "public, max-age=31536000, immutable");
+  assert.equal(home.headers["cache-control"], "public, max-age=31536000, immutable, no-transform");
 
   assert.equal((await visit(url, "/about")).text, "<h1>About</h1>");
   assert.equal((await visit(url, "/about.html")).text, "<h1>About</h1>");
@@ -83,7 +83,7 @@ test("binary files are served raw with byte ranges, HEAD and ETag revalidation",
   assert.equal(head.body.byteLength, 0);
   assert.ok(head.headers.etag);
 
-  const revalidated = await visit(url, "/data.bin", { headers: { "if-none-match": head.headers.etag as string } });
+  const revalidated = await visit(url, "/data.bin", { headers: { "if-none-match": `W/${head.headers.etag as string}` } });
   assert.equal(revalidated.status, 304);
   assert.equal(revalidated.body.byteLength, 0);
 });
