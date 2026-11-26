@@ -500,6 +500,55 @@ add("flat", "a full link whose path starts with a doubled slash while the site i
   await t.open("//docs/guide.html");
   await t.expect("guide");
 });
+const endsStuck = async (t: T): Promise<void> => {
+  await t.waitFor(`document.querySelector('[data-state="stuck"]')?.hidden === false`);
+  await t.eval(`window.stayed = true`);
+  await t.page.waitForTimeout(2000);
+  assert.equal(await t.eval(`window.stayed === true && document.querySelector('[data-state="stuck"]')?.hidden === false`), true);
+};
+const forgetStoredKey = async (t: T): Promise<void> => {
+  await t.eval(`new Promise((resolve, reject) => {
+    const request = indexedDB.open("site", 1);
+    request.onsuccess = () => {
+      const transaction = request.result.transaction("keys", "readwrite");
+      transaction.objectStore("keys").delete("link");
+      transaction.oncomplete = () => resolve(true);
+      transaction.onerror = () => reject(transaction.error);
+    };
+    request.onerror = () => reject(request.error);
+  })`);
+};
+const slowHops = async (t: T): Promise<void> => {
+  await t.page.addInitScript(`{
+    try {
+      const skew = Number(sessionStorage.getItem("test-skew") ?? 0) + 10000;
+      sessionStorage.setItem("test-skew", String(skew));
+      const now = Date.now;
+      Date.now = () => now() + skew;
+    } catch {}
+  }`);
+};
+const hopsWithoutReferrer = async (t: T): Promise<void> => {
+  await t.page.addInitScript(`Object.defineProperty(HTMLMetaElement.prototype, "content", { get: () => "", set: () => undefined })`);
+};
+const settles = async (t: T, start: () => Promise<unknown>, settled: string, mostLoads: number): Promise<void> => {
+  const page = t.page;
+  let loads = 0;
+  const count = (response: Response): void => {
+    if (response.request().isNavigationRequest() && response.frame() === page.mainFrame()) loads += 1;
+  };
+  page.on("response", count);
+  try {
+    await start();
+    await t.waitFor(settled, 15000);
+    await page.waitForTimeout(2000);
+    await t.waitFor(settled);
+  } finally {
+    page.off("response", count);
+  }
+  assert.ok(loads <= mostLoads, `${loads} page loads`);
+};
+const showsState = (state: string): string => `document.querySelector('[data-state="${state}"]')?.hidden === false`;
 const showsNotFound = `document.body?.innerText.trim() === "Not found"`;
 add(
   "flat",
@@ -521,6 +570,39 @@ add(
     const response = await t.open("/__site/missing");
     assert.equal(response?.status(), 404);
     assert.equal(await t.eval(showsNotFound), true);
+  },
+  { modes: ["private"] }
+);
+add(
+  "flat",
+  "a keyless visit to a reserved path while the site is open settles at once",
+  async (t) => {
+    await warm(t);
+    await forgetStoredKey(t);
+    await settles(t, () => t.page.goto(t.at("/__site/missing")), showsNotFound, 1);
+  },
+  { modes: ["private"] }
+);
+add(
+  "flat",
+  "a keyless visit with slow hops settles on the private page",
+  async (t) => {
+    await warm(t);
+    await forgetStoredKey(t);
+    await slowHops(t);
+    await settles(t, () => t.page.goto(t.at("/about.html")), showsState("private"), 1);
+  },
+  { modes: ["private"] }
+);
+add(
+  "noReferrer",
+  "a reopen hop that arrives without a referrer stops and says what to do",
+  async (t) => {
+    await warm(t, "/", "noref-home");
+    await hopsWithoutReferrer(t);
+    await slowHops(t);
+    await settles(t, () => t.click("#about"), showsState("stuck"), 4);
+    await endsStuck(t);
   },
   { modes: ["private"] }
 );

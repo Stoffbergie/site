@@ -14,10 +14,10 @@ type Link = { key: string | null; anchor: string };
 
 const KEY_FRAGMENT = /^([A-Za-z0-9_-]{43})(?:#(.*))?$/s;
 const OPENING_PATH = "/__site/opening";
-const OPENING_MARK = "site-opening";
-const REOPEN_WINDOW_MS = 5000;
 const MAX_REOPENS = 3;
 const BOOTSTRAP_HEADER = "X-Site-Bootstrap";
+const PROBE_HEADER = "X-Site-Probe";
+const BOOTSTRAPS_HEADER = "X-Site-Bootstraps";
 
 function readLink(): Link {
   const fragment = location.hash.slice(1);
@@ -38,22 +38,6 @@ function withAnchor(anchor: string): string {
 
 function dropKey(link: Link): void {
   history.replaceState(null, "", withAnchor(link.anchor));
-}
-
-function keepsReopening(target: string): boolean {
-  const cameFromReopen = document.referrer === `${location.origin}${OPENING_PATH}`;
-  try {
-    let count = 0;
-    const mark = sessionStorage.getItem(OPENING_MARK);
-    if (cameFromReopen && mark !== null) {
-      const previous = JSON.parse(mark) as { target: string; at: number; count: number };
-      if (previous.target === target && Date.now() - previous.at < REOPEN_WINDOW_MS) count = previous.count + 1;
-    }
-    sessionStorage.setItem(OPENING_MARK, JSON.stringify({ target, at: Date.now(), count }));
-    return count >= MAX_REOPENS;
-  } catch {
-    return false;
-  }
 }
 
 function sendSameSiteReferrer(): void {
@@ -103,22 +87,16 @@ function waitForControl(registration: ServiceWorkerRegistration): Promise<boolea
   });
 }
 
-type WorkerAnswer = "page" | "bootstrap" | "unavailable";
+type WorkerAnswer = "page" | "bootstrap" | "unavailable" | "looping";
 
 async function askWorker(): Promise<WorkerAnswer> {
-  const response = await fetch(pageAddress(), { cache: "no-store" });
+  const response = await fetch(pageAddress(), { cache: "no-store", headers: { [PROBE_HEADER]: "1" } });
   await response.body?.cancel();
   if (response.headers.has(BOOTSTRAP_HEADER)) return "bootstrap";
   if (response.status === 503) return "unavailable";
+  const bootstraps = Number(response.headers.get(BOOTSTRAPS_HEADER));
+  if (bootstraps > MAX_REOPENS) return "looping";
   return "page";
-}
-
-function reopen(link: Link, reopenedTooOften: boolean): void {
-  if (reopenedTooOften) {
-    show("stuck");
-    return;
-  }
-  openPage(link);
 }
 
 async function boot(): Promise<void> {
@@ -128,11 +106,6 @@ async function boot(): Promise<void> {
   }
   const controlledAlready = navigator.serviceWorker.controller !== null;
   const link = readLink();
-  const reopening = keepsReopening(withAnchor(link.anchor));
-  if (controlledAlready && link.key === null && !reopening) {
-    openPage(link);
-    return;
-  }
   const stored = await storedKey();
   const key = link.key ?? stored;
   if (key === null) {
@@ -157,9 +130,9 @@ async function boot(): Promise<void> {
   dropKey(link);
   if (controlledAlready) {
     const answer = await askWorker();
-    if (answer === "page") reopen(link, reopening);
-    else if (answer === "bootstrap") show("stuck");
-    else show("failed");
+    if (answer === "page") openPage(link);
+    else if (answer === "unavailable") show("failed");
+    else show("stuck");
     return;
   }
 
@@ -169,7 +142,7 @@ async function boot(): Promise<void> {
     show("unsupported");
     return;
   }
-  reopen(link, reopening);
+  openPage(link);
 }
 
 window.addEventListener("hashchange", () => {
