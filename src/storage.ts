@@ -1,3 +1,4 @@
+import { fitCharset, mayCarryCharset } from "./charset";
 import type { Env } from "./env";
 import { randomId } from "./names";
 import {
@@ -21,6 +22,7 @@ import { knownType, SNIFF_BYTES, sniffedType } from "./types";
 export const MAX_NAMES = 20;
 export const EDGE_SECONDS = 300;
 const HEAD_READ_BYTES = 65_536;
+const CHARSET_SNIFF_BYTES = 65_536;
 const MEMORY_ENTRIES = 500;
 
 export type Deploy = { id: string; index: PackIndex; dataStart: number; byPath: Map<string, number> };
@@ -76,9 +78,17 @@ export async function storeDeploy(env: Env, request: Request, filename: string, 
     const safeName = validPath(filename) && !filename.includes("/") ? filename : "file";
     let type = knownType(safeName);
     let head: Uint8Array = new Uint8Array(0);
+    if (type === null || mayCarryCharset(type)) {
+      head = await taker.take(CHARSET_SNIFF_BYTES - magic.byteLength);
+    }
     if (type === null) {
-      head = await taker.take(SNIFF_BYTES - magic.byteLength);
-      type = sniffedType(new Uint8Array([...magic, ...head]));
+      type = sniffedType(new Uint8Array([...magic, ...head.subarray(0, SNIFF_BYTES - magic.byteLength)]));
+    }
+    if (mayCarryCharset(type)) {
+      const start = new Uint8Array(magic.byteLength + head.byteLength);
+      start.set(magic, 0);
+      start.set(head, magic.byteLength);
+      type = fitCharset(type, start, start.byteLength >= body.length);
     }
     index = { spa: false, files: [{ path: safeName, offset: 0, length: body.length, type, gzip: false }] };
     const header = encodeHeader(index);

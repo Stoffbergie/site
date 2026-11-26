@@ -100,7 +100,12 @@ const contents: Record<string, string | Buffer> = {
 
 function filesFor(names: string[]): Record<string, string | Buffer> {
   const files: Record<string, string | Buffer> = { "index.html": "<h1>Types</h1>" };
-  for (const name of names) files[name] = contents[name] ?? binary;
+  for (const name of names) {
+    const given = contents[name];
+    if (given !== undefined) files[name] = given;
+    else if (expected[name].endsWith("; charset=utf-8")) files[name] = "Text in UTF-8: Zoë ✓\n";
+    else files[name] = binary;
+  }
   return files;
 }
 
