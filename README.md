@@ -17,6 +17,7 @@
   <a href="#start-deploying">Get started</a> ·
   <a href="#everyday-commands">Commands</a> ·
   <a href="#names">Names</a> ·
+  <a href="#keep-a-site-private">Private sites</a> ·
   <a href="https://site.stoff.dev">Website</a> ·
   <a href="SKILL.md">For agents</a>
 </p>
@@ -56,6 +57,7 @@ Download a binary for macOS, Linux or Windows from [Releases](https://github.com
 | ------------------------------- | ---------------------------------- |
 | Deploy a folder                 | `site dist`                        |
 | Deploy it under a name          | `site dist -n todo`                |
+| Keep it private                 | `site dist -e`                     |
 | Deploy loose files at the root  | `site index.html style.css`        |
 | Deploy command output as a page | `cat page.html \| site -`          |
 | A single-page app               | `site dist --spa`                  |
@@ -80,9 +82,37 @@ site ls
 site point todo k3m9xq2a
 ```
 
-A deploy a name points at can't be removed until the name moves or is released with `site rm todo`.
+A deploy a name points at can't be removed until the name moves or is released with `site rm todo`. A released name stays yours: only your key can claim it again.
 
 Names are 3 to 40 lowercase letters, digits and hyphens. Each key holds up to 20.
+
+## Keep a site private
+
+```console
+$ site dist -e
+3 files · 9.1 KB
+https://k3m9xq2a.site.stoff.dev/#4f0cX2…
+```
+
+`-e` encrypts every file, path and content type on your machine before upload. The key is in the link after `#`, which browsers never send to a server, so the server only ever stores ciphertext. Open the full link in a browser and the site works as usual, pages, images, clean URLs, `--spa` and media seeking included; it is decrypted in the browser.
+
+Name it and the link stays the same across redeploys:
+
+```console
+$ site dist -e -n todo
+https://todo.site.stoff.dev/#9b1e…
+```
+
+Links are derived from your key, so `site ls` prints them again on any machine with that key. Nothing new to save.
+
+What it protects and what it doesn't:
+
+- Anyone with the full link can read the site. Share it like a password.
+- The server, and anyone with only the URL before `#`, cannot. They get a page saying the site is private.
+- The address of a page someone opens directly or hard-reloads reaches the server as a request path, like any URL. Contents, and the names of everything else, do not.
+- To take access away, remove the deploy with `site rm`, or release the name. There is no other revocation.
+- A name holding an encrypted site never turns public by accident: deploying to it without `-e` is refused.
+- It needs JavaScript and service workers, so it opens in current browsers but not in private windows that turn service workers off. Encrypting needs the CLI; there is no encrypted deploy through curl.
 
 ## Your key
 
@@ -92,8 +122,10 @@ To use the same sites from another machine, print the key on the first and save 
 
 ```sh
 site key                 # on the first machine
-site key site_…          # on the second
+site key site_….…        # on the second
 ```
+
+The key has two parts joined by a dot. The part before the dot signs you in. The part after it never leaves your machines and makes the links of private sites, so the server cannot open them.
 
 `site key <key>` asks before replacing a different key, and refuses in scripts. In CI, set `SITE_KEY` instead.
 
@@ -106,7 +138,7 @@ site key site_…          # on the second
 | `/about`      | `about.html`, or a redirect to `/about/`   |
 | Anything else | `404.html` with status 404, or a plain 404 |
 
-With `--spa`, unknown paths without a file extension serve `index.html`. With no `index.html`, a lone HTML file is the page at `/`, a single file is served at `/` and under its name, and anything else shows a file list.
+Encrypted sites follow the same rules, applied in the browser. With `--spa`, unknown paths without a file extension serve `index.html`. With no `index.html`, a lone HTML file is the page at `/`, a single file is served at `/` and under its name, and anything else shows a file list.
 
 Text files are compressed before upload and served compressed. Other files support byte ranges. Deploy URLs are cached by browsers for a year, since a deploy never changes; named URLs revalidate on every load.
 
@@ -122,10 +154,10 @@ curl -T page.html https://site.stoff.dev
 With your key, the deploy is yours, and you can name it, list and remove:
 
 ```sh
-curl -T page.html -H 'Authorization: Bearer <key>' 'https://site.stoff.dev/?name=todo'
-curl -H 'Authorization: Bearer <key>' https://site.stoff.dev/list
-curl -X DELETE -H 'Authorization: Bearer <key>' https://site.stoff.dev/deploys/<id>
-curl -X DELETE -H 'Authorization: Bearer <key>' https://site.stoff.dev/names/<name>
+curl -T page.html -H 'Authorization: Bearer <key before the dot>' 'https://site.stoff.dev/?name=todo'
+curl -H 'Authorization: Bearer <key before the dot>' https://site.stoff.dev/list
+curl -X DELETE -H 'Authorization: Bearer <key before the dot>' https://site.stoff.dev/deploys/<id>
+curl -X DELETE -H 'Authorization: Bearer <key before the dot>' https://site.stoff.dev/names/<name>
 ```
 
 Add `-H 'Accept: application/json'` to a deploy for JSON. A deploy without a key can't be removed by you; ask through [issues](https://github.com/Stoffbergie/site/issues) if one needs taking down. `curl https://site.stoff.dev` prints the full usage.

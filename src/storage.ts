@@ -13,8 +13,10 @@ import {
   startsWithMagic,
   typeFor,
   validPath,
+  type Encrypted,
   type PackIndex
 } from "./pack";
+import { byPathOf } from "./resolve";
 
 export const MAX_NAMES = 20;
 export const EDGE_SECONDS = 300;
@@ -22,10 +24,10 @@ const HEAD_READ_BYTES = 65_536;
 const MEMORY_ENTRIES = 500;
 
 export type Deploy = { id: string; index: PackIndex; dataStart: number; byPath: Map<string, number> };
-export type Stored = { id: string; files: number; size: number };
+export type Stored = { id: string; files: number; size: number; encrypted: Encrypted | null };
 export type StoreResult = { stored: Stored } | { problem: string; status: 400 | 411 | 413 };
 export type Pointer = { id: string; owner: string };
-export type PointerRecord = { etag: string; pointer: Pointer | null };
+export type PointerRecord = { etag: string; pointer: Pointer | null; releasedBy: string | null };
 
 const memory = new Map<string, { deploy: Deploy; loadedAt: number }>();
 
@@ -79,7 +81,10 @@ export async function storeDeploy(env: Env, request: Request, filename: string, 
   }
 
   const size = index.files.reduce((sum, file) => sum + file.length, 0);
-  const metadata: Record<string, string> = { files: String(index.files.length), size: String(size) };
+  let files = index.files.length;
+  if (index.encrypted) files -= 1;
+  const listed: Record<string, string> = { files: String(files), size: String(size), ...linkHint(index.encrypted) };
+  const metadata: Record<string, string> = { ...listed };
   if (owner) metadata.owner = owner;
 
   const id = randomId();
@@ -92,8 +97,22 @@ export async function storeDeploy(env: Env, request: Request, filename: string, 
     return malformed("The upload was shorter or longer than it said; deploy again.");
   }
   if (!written) throw new Error(`Deploy id ${id} was already taken`);
-  if (owner) await env.SITES.put(ownedDeployKey(owner, id), "", { customMetadata: { files: metadata.files, size: metadata.size } });
-  return { stored: { id, files: index.files.length, size } };
+  if (owner) await env.SITES.put(ownedDeployKey(owner, id), "", { customMetadata: listed });
+  return { stored: { id, files, size, encrypted: index.encrypted ?? null } };
+}
+
+function linkHint(encrypted: Encrypted | undefined): Record<string, string> {
+  if (encrypted?.name) return { encryptedName: encrypted.name };
+  if (encrypted?.linkSalt) return { linkSalt: encrypted.linkSalt };
+  return {};
+}
+
+export function isEncrypted(object: R2Object): boolean {
+  return encryptedName(object) !== null || object.customMetadata?.linkSalt !== undefined;
+}
+
+export function encryptedName(object: R2Object): string | null {
+  return object.customMetadata?.encryptedName ?? null;
 }
 
 export async function removeDeploy(env: Env, id: string, owner: string | undefined): Promise<void> {
@@ -118,7 +137,7 @@ export async function loadDeploy(env: Env, id: string): Promise<Deploy | null> {
   }
 
   const index = decodeIndex(header.subarray(PREAMBLE_LENGTH));
-  const byPath = new Map(index.files.map((file, position) => [file.path, position]));
+  const byPath = byPathOf(index.files);
   const deploy = { id, index, dataStart: header.byteLength, byPath };
   remember(id, deploy);
   return deploy;
@@ -149,8 +168,8 @@ export async function readPointerRecord(env: Env, name: string): Promise<Pointer
   if (!object) return null;
   const id = object.customMetadata?.id;
   const owner = object.customMetadata?.owner;
-  if (!id || !owner) return { etag: object.etag, pointer: null };
-  return { etag: object.etag, pointer: { id, owner } };
+  if (!id || !owner) return { etag: object.etag, pointer: null, releasedBy: object.customMetadata?.releasedBy ?? null };
+  return { etag: object.etag, pointer: { id, owner }, releasedBy: null };
 }
 
 export async function readPointer(env: Env, name: string): Promise<Pointer | null> {
@@ -166,8 +185,8 @@ export async function writePointer(env: Env, name: string, owner: string, id: st
   return true;
 }
 
-export async function releasePointer(env: Env, name: string, owner: string, previousEtag: string): Promise<boolean> {
-  const written = await env.SITES.put(nameKey(name), crypto.randomUUID(), { onlyIf: versionCondition(previousEtag) });
+export async function releasePointer(env: Env, name: string, owner: string, releasedBy: string, previousEtag: string): Promise<boolean> {
+  const written = await env.SITES.put(nameKey(name), crypto.randomUUID(), { customMetadata: { releasedBy }, onlyIf: versionCondition(previousEtag) });
   if (!written) return false;
   await env.SITES.delete(ownedNameKey(owner, name));
   return true;

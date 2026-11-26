@@ -1,5 +1,3 @@
-import type { PackFile } from "./pack";
-
 const SOURCE_URL = "https://github.com/Stoffbergie/site";
 const ISSUES_URL = "https://github.com/Stoffbergie/site/issues";
 const TAGLINE = "Static sites, live in one command.";
@@ -36,7 +34,7 @@ type Row = [command: string, label: string, description: string];
 type Section = { title: string; rows: Row[] };
 
 const AUTOMATION_GUIDANCE =
-  "Agents and automation: deploy with site --no-copy <folder> and read the URL from stdout. The key in site key owns your deploys and names; never print, log or share it. Remove deploys you made for a one-off task with site rm <id> when the task is done.";
+  "Agents and automation: deploy with site --no-copy <folder> and read the URL from stdout. The key in site key owns your deploys and names; never print, log or share it. Remove deploys you made for a one-off task with site rm <id> when the task is done. A link from site -e carries its key after #; share it only with people who should read the site.";
 
 function usage(origin: string, domain: string): Section[] {
   return [
@@ -46,6 +44,11 @@ function usage(origin: string, domain: string): Section[] {
       rows: [
         ["site dist", "Deploy a folder", `Upload a folder in one request and print a URL like https://k3m9xq2a.${domain}. Every deploy gets its own URL and never changes.`],
         ["site dist -n todo", "Give it a name", `Also point https://todo.${domain} at this deploy. The first deploy claims the name; later deploys with your key move it.`],
+        [
+          "site dist -e",
+          "Keep it private",
+          "Encrypt every file, name and type on this machine and print a link with the key after #. Only the full link opens the site, in a browser; the server stores ciphertext and never sees the key. With -n the link stays the same across redeploys. Anyone with the full link can read the site; to cut off access, remove the deploy or release the name. Needs the CLI, not curl."
+        ],
         ["site ls", "Your sites", "List your names, the deploy each points at, and your deploys with their age, size and file count."],
         ["site point todo k3m9xq2a", "Roll back", "Point a name at one of your earlier deploys."],
         ["site rm k3m9xq2a", "Remove", "Delete a deploy, or release a name with site rm todo. A deploy a name points at stays until the name moves."]
@@ -65,9 +68,9 @@ function usage(origin: string, domain: string): Section[] {
       title: "curl",
       rows: [
         [`curl -T page.html ${origin}`, "Deploy one file", "Upload a single file; its type comes from the filename and it is served at / and under its name. Prints the URL."],
-        [`curl -T page.html -H 'Authorization: Bearer <key>' '${origin}/?name=todo'`, "Name it", "Deploy with your key to own the deploy and claim or move a name."],
-        [`curl -H 'Authorization: Bearer <key>' ${origin}/list`, "List as JSON", "Your names and deploys."],
-        [`curl -X DELETE -H 'Authorization: Bearer <key>' ${origin}/deploys/<id>`, "Delete a deploy", "Remove a deploy you own. DELETE /names/<name> releases a name."]
+        [`curl -T page.html -H 'Authorization: Bearer <key before the dot>' '${origin}/?name=todo'`, "Name it", "Deploy with your key to own the deploy and claim or move a name."],
+        [`curl -H 'Authorization: Bearer <key before the dot>' ${origin}/list`, "List as JSON", "Your names and deploys."],
+        [`curl -X DELETE -H 'Authorization: Bearer <key before the dot>' ${origin}/deploys/<id>`, "Delete a deploy", "Remove a deploy you own. DELETE /names/<name> releases a name."]
       ]
     }
   ];
@@ -114,7 +117,20 @@ export function notFoundPage(): string {
   return layout("Not found · site", `<h1>Not found</h1>\n<p>Nothing is here.</p>`, { description: "Nothing is here.", branded: true });
 }
 
-export function fileListPage(hostname: string, files: PackFile[]): string {
+export function privateSitePage(): string {
+  return layout(
+    "Private site",
+    `<section data-state="opening"><h1>Private site</h1><p>Opening…</p><noscript><p>This site is encrypted and opens in the browser; turn on JavaScript to read it.</p></noscript></section>
+<section data-state="private" hidden><h1>This site is private</h1><p>Open it with the full link, including the key after #.</p></section>
+<section data-state="wrong" hidden><h1>This key does not open this site</h1><p>Check that the link is complete, or ask whoever shared it for a new one.</p></section>
+<section data-state="unsupported" hidden><h1>This browser cannot open private sites</h1><p>Private sites are decrypted by a service worker. Open the full link in a regular window of a current browser.</p></section>
+<section data-state="failed" hidden><h1>Could not open this site</h1><p>Reload the page to try again.</p></section>
+<script src="/__site/boot.js"></script>`,
+    { description: "A private site." }
+  );
+}
+
+export function fileListPage(hostname: string, files: { path: string; length: number }[]): string {
   const rows = files.map((file) => `<li><a href="/${encodePath(file.path)}">${escapeHtml(file.path)}</a><span>${size(file.length)}</span></li>`).join("");
   return layout(
     hostname,

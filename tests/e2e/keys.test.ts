@@ -1,15 +1,15 @@
 import { strict as assert } from "node:assert";
-import { statSync } from "node:fs";
+import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "vite-plus/test";
-import { folder, keyOf, newHome, runCli } from "../helpers/site";
+import { apiKeyOf, deploy, folder, keyOf, newHome, runCli } from "../helpers/site";
 
 test("the first deploy makes a private key that site key prints", async () => {
   const home = newHome();
   const deployed = await runCli(["--no-copy", folder({ "index.html": "x" })], { home });
   assert.equal(deployed.code, 0, deployed.stderr);
   const key = await keyOf(home);
-  assert.match(key, /^site_[a-z0-9]{32}$/);
+  assert.match(key, /^site_[a-z0-9]{32}\.[a-z0-9]{32}$/);
   assert.equal(await keyOf(home), key, "the key stays the same");
 
   const configDir = process.platform === "darwin" ? join(home, "Library/Application Support/site") : join(home, "site");
@@ -42,4 +42,51 @@ test("SITE_KEY overrides the saved key", async () => {
   const home = newHome();
   const result = await runCli(["key"], { home, env: { SITE_KEY: shared } });
   assert.equal(result.stdout.trim(), shared);
+});
+
+test("a key saved by an older site gains its private part and still owns its deploys", async () => {
+  const old = newHome();
+  const { url } = await deploy(["--no-copy", folder({ "index.html": "x" })], { home: old });
+  const olderKey = await apiKeyOf(old);
+
+  const home = newHome();
+  const configDir = process.platform === "darwin" ? join(home, "Library/Application Support/site") : join(home, "site");
+  mkdirSync(configDir, { recursive: true });
+  writeFileSync(join(configDir, "config.json"), JSON.stringify({ key: olderKey }));
+
+  const listed = await runCli(["ls"], { home });
+  assert.match(listed.stdout, new RegExp(url));
+  const upgraded = await keyOf(home);
+  assert.match(upgraded, new RegExp(`^${olderKey}\\.[a-z0-9]{32}$`));
+  assert.equal(await keyOf(home), upgraded, "the private part is made once");
+  const saved = JSON.parse(readFileSync(join(configDir, "config.json"), "utf8")) as { key: string; secret: string };
+  assert.equal(saved.key, olderKey, "an older site still reads only the login part");
+  assert.equal(`${saved.key}.${saved.secret}`, upgraded);
+});
+
+test("private sites need the whole key, not only the part the server sees", async () => {
+  const apiOnly = await apiKeyOf(newHome());
+  const result = await runCli(["--no-copy", "-e", folder({ "index.html": "x" })], { env: { SITE_KEY: apiOnly } });
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /^site: private sites need the whole key; set SITE_KEY to everything site key prints, including the part after the dot\n$/);
+
+  const plain = await runCli(["--no-copy", folder({ "index.html": "x" })], { env: { SITE_KEY: ` ${apiOnly}\n` } });
+  assert.equal(plain.code, 0, plain.stderr);
+
+  const owner = newHome();
+  const name = `whole-${Math.random().toString(36).slice(2, 8)}`;
+  const first = await deploy(["--no-copy", "-e", "-n", name, folder({ "index.html": "one" })], { home: owner });
+  const firstId = /https:\/\/([a-z0-9]{8})\./.exec(first.run.stderr)?.[1] as string;
+  await deploy(["--no-copy", "-e", "-n", name, folder({ "index.html": "two" })], { home: owner });
+  const loginOnly = { env: { SITE_KEY: await apiKeyOf(owner) } };
+
+  const pointed = await runCli(["point", name, firstId], loginOnly);
+  assert.equal(pointed.code, 0, pointed.stderr);
+  assert.match(pointed.stdout, new RegExp(`^https://${name}\\.site\\.localhost\n$`));
+  assert.match(pointed.stderr, /Private links need the whole key/);
+
+  const listed = await runCli(["ls"], loginOnly);
+  assert.equal(listed.code, 0, listed.stderr);
+  assert.match(listed.stdout, new RegExp(`https://${firstId}\\.site\\.localhost +.*encrypted`));
+  assert.doesNotMatch(listed.stdout, /#/);
 });

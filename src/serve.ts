@@ -1,11 +1,13 @@
+import bootSource from "virtual:browser/boot";
+import serviceWorkerSource from "virtual:browser/service-worker";
 import type { Env } from "./env";
 import { isDeployId, nameProblem } from "./names";
 import type { PackFile } from "./pack";
-import { fileListPage } from "./pages";
+import { fileListPage, privateSitePage } from "./pages";
+import { decodePath, parseRange, resolve } from "./resolve";
 import { deployKey, EDGE_SECONDS, loadDeploy, readPointer, type Deploy } from "./storage";
 
-type Target = { kind: "file"; number: number; status: 200 | 404 } | { kind: "folder" } | { kind: "list" } | { kind: "missing" };
-type ByteRange = { offset: number; length: number };
+const ENTRY_PATH = /^\/__site\/entries\/(0|[1-9]\d*)$/;
 
 const IMMUTABLE = "public, max-age=31536000, immutable, no-transform";
 const REVALIDATE = "no-cache, no-transform";
@@ -32,9 +34,11 @@ export async function serveSite(request: Request, env: Env, ctx: ExecutionContex
   if (!deploy) return noSite();
 
   const url = new URL(request.url);
+  if (deploy.index.encrypted) return serveEncrypted(request, env, ctx, deploy, named, url.pathname);
+  if (url.pathname.startsWith("/__site/")) return notFound();
   const pathname = decodePath(url.pathname);
   if (pathname === null) return notFound();
-  const target = resolve(deploy, pathname);
+  const target = resolve({ spa: deploy.index.spa, files: deploy.index.files, byPath: deploy.byPath }, pathname);
 
   if (target.kind === "missing") return notFound();
   if (target.kind === "folder") return new Response(null, { status: 308, headers: { Location: `${url.pathname}/${url.search}`, "Cache-Control": REVALIDATE } });
@@ -42,36 +46,26 @@ export async function serveSite(request: Request, env: Env, ctx: ExecutionContex
   return serveFile(request, env, ctx, deploy, target.number, target.status, named);
 }
 
-function resolve(deploy: Deploy, pathname: string): Target {
-  const { byPath, index } = deploy;
-  const relative = pathname.slice(1);
-
-  const candidates: string[] = [];
-  if (relative === "" || relative.endsWith("/")) {
-    candidates.push(`${relative}index.html`);
-  } else {
-    candidates.push(relative, `${relative}.html`);
+async function serveEncrypted(request: Request, env: Env, ctx: ExecutionContext, deploy: Deploy, named: boolean, pathname: string): Promise<Response> {
+  if (pathname === "/__site/sw.js") return script(serviceWorkerSource, { "Service-Worker-Allowed": "/" });
+  if (pathname === "/__site/boot.js") return script(bootSource, {});
+  if (pathname === "/__site/meta") {
+    const entries = deploy.index.files.map((file) => file.length);
+    return Response.json({ id: deploy.id, encrypted: deploy.index.encrypted, entries }, { headers: { "Cache-Control": REVALIDATE, "X-Content-Type-Options": "nosniff" } });
   }
-  for (const candidate of candidates) {
-    const number = byPath.get(candidate);
-    if (number !== undefined) return { kind: "file", number, status: 200 };
+  const entry = ENTRY_PATH.exec(pathname);
+  if (entry !== null) {
+    const number = Number(entry[1]);
+    if (number >= deploy.index.files.length) return notFound();
+    return serveFile(request, env, ctx, deploy, number, 200, named);
   }
-  if (relative !== "" && byPath.has(`${relative}/index.html`)) return { kind: "folder" };
+  return new Response(privateSitePage(), {
+    headers: { "Content-Type": "text/html; charset=utf-8", "X-Content-Type-Options": "nosniff", "Cache-Control": REVALIDATE, "Referrer-Policy": "no-referrer" }
+  });
+}
 
-  if (relative === "") {
-    if (index.files.length === 1) return { kind: "file", number: 0, status: 200 };
-    const pages = index.files.filter((file) => isHtml(file));
-    if (pages.length === 1) return { kind: "file", number: index.files.indexOf(pages[0]), status: 200 };
-    return { kind: "list" };
-  }
-
-  const lastSegment = relative.split("/").pop() ?? "";
-  const home = byPath.get("index.html");
-  if (index.spa && !lastSegment.includes(".") && home !== undefined) return { kind: "file", number: home, status: 200 };
-
-  const notFoundPage = byPath.get("404.html");
-  if (notFoundPage !== undefined) return { kind: "file", number: notFoundPage, status: 404 };
-  return { kind: "missing" };
+function script(source: string, extraHeaders: Record<string, string>): Response {
+  return new Response(source, { headers: { "Content-Type": "text/javascript; charset=utf-8", "X-Content-Type-Options": "nosniff", "Cache-Control": REVALIDATE, ...extraHeaders } });
 }
 
 async function serveFile(request: Request, env: Env, ctx: ExecutionContext, deploy: Deploy, number: number, status: 200 | 404, named: boolean): Promise<Response> {
@@ -155,35 +149,6 @@ function sameVersion(request: Request, etag: string): boolean {
   const presented = request.headers.get("if-none-match");
   if (presented === null) return false;
   return presented.replace(/^W\//, "") === etag;
-}
-
-function parseRange(header: string, size: number): ByteRange | null {
-  const match = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
-  if (!match || size === 0) return null;
-  const [, startText, endText] = match;
-  if (startText === "" && endText === "") return null;
-  if (startText === "") {
-    const suffix = Math.min(Number(endText), size);
-    if (suffix === 0) return null;
-    return { offset: size - suffix, length: suffix };
-  }
-  const start = Number(startText);
-  let end = size - 1;
-  if (endText !== "") end = Math.min(Number(endText), size - 1);
-  if (start > end) return null;
-  return { offset: start, length: end - start + 1 };
-}
-
-function decodePath(pathname: string): string | null {
-  try {
-    return decodeURIComponent(pathname);
-  } catch {
-    return null;
-  }
-}
-
-function isHtml(file: PackFile): boolean {
-  return file.type.startsWith("text/html");
 }
 
 function noSite(): Response {

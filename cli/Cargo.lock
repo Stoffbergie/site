@@ -1189,14 +1189,16 @@ checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
 
 [[package]]
 name = "site"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
+ "base64",
  "clap",
  "dirs",
  "flate2",
  "getrandom 0.4.3",
  "reqwest",
+ "ring",
  "serde",
  "serde_json",
 ]

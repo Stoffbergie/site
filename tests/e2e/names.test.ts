@@ -1,13 +1,13 @@
 import { strict as assert } from "node:assert";
 import { test } from "vite-plus/test";
-import { adminToken, baseUrl, deploy, folder, idUrl, keyOf, newHome, runCli, uniqueName, upload, visit } from "../helpers/site";
+import { adminToken, baseUrl, deploy, folder, idUrl, apiKeyOf, keyOf, newHome, runCli, uniqueName, upload, visit } from "../helpers/site";
 
 test("a name points at the latest deploy and a redeploy is visible on the very next load", async () => {
   const home = newHome();
   const name = uniqueName("todo");
   const first = await deploy(["--no-copy", "-n", name, folder({ "index.html": "<h1>One</h1>" })], { home });
-  assert.equal(first.url, `https://${name}.site.test`);
-  const firstId = /https:\/\/([a-z0-9]{8})\.site\.test/.exec(first.run.stderr)?.[1];
+  assert.equal(first.url, `https://${name}.site.localhost`);
+  const firstId = /https:\/\/([a-z0-9]{8})\.site\.localhost/.exec(first.run.stderr)?.[1];
   assert.ok(firstId, `the per-deploy URL goes to stderr: ${first.run.stderr}`);
 
   const before = await visit(first.url);
@@ -30,7 +30,7 @@ test("another key cannot take a name", async () => {
   assert.equal(stranger.code, 1);
   assert.equal(stranger.stdout, "");
   assert.match(stranger.stderr, /^site: that name is taken; pick another\n$/);
-  assert.equal((await visit(`https://${name}.site.test`)).text, "owner");
+  assert.equal((await visit(`https://${name}.site.localhost`)).text, "owner");
 });
 
 test("the same key on a second machine redeploys, lists and rolls back with point", async () => {
@@ -49,8 +49,8 @@ test("the same key on a second machine redeploys, lists and rolls back with poin
 
   const listed = await runCli(["ls"], { home: laptop });
   assert.equal(listed.code, 0, listed.stderr);
-  assert.match(listed.stdout, new RegExp(`https://${name}\\.site\\.test\\s+→ [a-z0-9]{8}`));
-  assert.equal(listed.stdout.match(/^https:\/\/[a-z0-9]{8}\.site\.test\s+(just now|\dm ago)\s+\d+ B\s+1 file$/gm)?.length, 2, listed.stdout);
+  assert.match(listed.stdout, new RegExp(`https://${name}\\.site\\.localhost\\s+→ [a-z0-9]{8}`));
+  assert.equal(listed.stdout.match(/^https:\/\/[a-z0-9]{8}\.site\.localhost\s+(just now|\dm ago)\s+\d+ B\s+1 file$/gm)?.length, 2, listed.stdout);
 
   const pointed = await runCli(["point", name, firstId], { home: desktop });
   assert.equal(pointed.code, 0, pointed.stderr);
@@ -70,7 +70,7 @@ test("rm refuses a deploy a name points at, then releases the name and deletes t
 
   const released = await runCli(["rm", name], { home });
   assert.equal(released.code, 0, released.stderr);
-  assert.equal((await visit(`https://${name}.site.test`)).status, 404);
+  assert.equal((await visit(`https://${name}.site.localhost`)).status, 404);
 
   const deleted = await runCli(["rm", id], { home });
   assert.equal(deleted.code, 0, deleted.stderr);
@@ -115,7 +115,7 @@ test.each([
 
 test("a key holds at most 20 names", async () => {
   const home = newHome();
-  const key = await keyOf(home);
+  const key = await apiKeyOf(home);
   const headers = { Authorization: `Bearer ${key}`, "content-type": "application/json" };
   const { run } = await deploy(["--no-copy", folder({ "index.html": "x" })], { home });
   const id = /https:\/\/([a-z0-9]{8})\./.exec(run.stdout)?.[1] as string;
@@ -132,4 +132,24 @@ test("a key holds at most 20 names", async () => {
 test("naming a deploy needs a key", async () => {
   const response = await upload(`/page.html?name=${uniqueName("anon")}`, "<h1>hi</h1>");
   assert.equal(response.status, 401);
+});
+
+test("a released name can only be claimed again by the key that released it", async () => {
+  const home = newHome();
+  const name = uniqueName("mine");
+  await deploy(["--no-copy", "-n", name, folder({ "index.html": "first" })], { home });
+  assert.equal((await runCli(["rm", name], { home })).code, 0);
+
+  const stranger = await runCli(["--no-copy", "-n", name, folder({ "index.html": "theirs" })]);
+  assert.equal(stranger.code, 1);
+  assert.match(stranger.stderr, /site: that name is taken; pick another/);
+
+  const again = await deploy(["--no-copy", "-n", name, folder({ "index.html": "second" })], { home });
+  assert.equal((await visit(again.url)).text, "second");
+
+  const admin = { Authorization: `Bearer ${adminToken}` };
+  assert.equal((await fetch(`${baseUrl}/names/${name}`, { method: "DELETE", headers: admin })).status, 200);
+  const afterTakedown = await runCli(["--no-copy", "-n", name, folder({ "index.html": "third" })], { home });
+  assert.equal(afterTakedown.code, 1);
+  assert.match(afterTakedown.stderr, /site: that name is taken; pick another/);
 });

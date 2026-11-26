@@ -1,6 +1,6 @@
 {
   "name": "site",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": false,
   "description": "Static sites, live in one command.",
   "homepage": "https://site.stoff.dev",
@@ -27,6 +27,7 @@
     "@cloudflare/vite-plugin": "^1.70.2",
     "@cloudflare/workers-types": "^5.20261125.1",
     "@types/node": "^26.6.11",
+    "playwright": "^1.65.1",
     "vite-plus": "catalog:",
     "wrangler": "^4.168.0"
   },

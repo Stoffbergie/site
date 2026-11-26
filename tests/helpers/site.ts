@@ -71,6 +71,10 @@ export async function keyOf(home: string): Promise<string> {
   return (await runCli(["key"], { home })).stdout.trim();
 }
 
+export async function apiKeyOf(home: string): Promise<string> {
+  return (await keyOf(home)).split(".")[0];
+}
+
 export function newHome(): string {
   return mkdtempSync(join(tmpdir(), "site-cli-"));
 }
@@ -91,4 +95,13 @@ export function uniqueName(prefix: string): string {
 
 export function idUrl(id: string): string {
   return `https://${id}.${siteDomain}`;
+}
+
+export function browserUrl(link: string): string {
+  const url = new URL(link);
+  return `http://${url.hostname}:${serverPort}${url.pathname}${url.search}${url.hash}`;
+}
+
+export function hostOf(link: string): string {
+  return link.split("#")[0].replace(/\/$/, "");
 }

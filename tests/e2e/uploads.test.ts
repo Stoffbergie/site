@@ -3,7 +3,7 @@ import { closeSync, openSync, ftruncateSync } from "node:fs";
 import { join } from "node:path";
 import { strict as assert } from "node:assert";
 import { test } from "vite-plus/test";
-import { baseUrl, folder, keyOf, newHome, runCli, upload, visit } from "../helpers/site";
+import { apiKeyOf, baseUrl, folder, newHome, runCli, upload, visit } from "../helpers/site";
 
 function pack(index: unknown, data: Buffer): Buffer {
   const json = Buffer.from(JSON.stringify(index));
@@ -15,7 +15,7 @@ function pack(index: unknown, data: Buffer): Buffer {
 test("curl -T deploys a single file with its type taken from the filename", async () => {
   const root = folder({ "page.html": "<h1>From curl</h1>" });
   const printed = execFileSync("curl", ["-fsS", "-T", join(root, "page.html"), baseUrl], { encoding: "utf8" });
-  assert.match(printed, /^https:\/\/[a-z0-9]{8}\.site\.test\n$/);
+  assert.match(printed, /^https:\/\/[a-z0-9]{8}\.site\.localhost\n$/);
   const url = printed.trim();
 
   const home = await visit(url, "/");
@@ -60,7 +60,7 @@ test.each([
   ["no spa flag", { files: [{ path: "a", offset: 0, length: 5, type: "text/plain", gzip: false }] }, "hello", /spa/]
 ])("a pack with %s is refused and leaves nothing behind", async (_, index, data, message) => {
   const home = newHome();
-  const key = await keyOf(home);
+  const key = await apiKeyOf(home);
   const response = await upload("/", pack(index, Buffer.from(data)), { authorization: `Bearer ${key}` }, "POST");
   assert.equal(response.status, 400);
   assert.match(response.text, message);

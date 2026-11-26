@@ -1,3 +1,5 @@
+import { nameProblem } from "./names";
+
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
@@ -10,8 +12,12 @@ export const MAX_INDEX_BYTES = 2_000_000;
 const MAX_PATH_LENGTH = 1024;
 const MAX_TYPE_LENGTH = 200;
 
+const ENTRY_TYPE = "application/octet-stream";
+const SALT_PATTERN = /^[A-Za-z0-9_-]{22}$/;
+
 export type PackFile = { path: string; offset: number; length: number; type: string; gzip: boolean };
-export type PackIndex = { spa: boolean; files: PackFile[] };
+export type Encrypted = { name?: string; linkSalt?: string; contentSalt: string };
+export type PackIndex = { spa: boolean; files: PackFile[]; encrypted?: Encrypted };
 export type IndexCheck = { index: PackIndex } | { problem: string };
 
 export function encodeHeader(index: PackIndex): Uint8Array {
@@ -33,7 +39,9 @@ export function readIndexLength(preamble: Uint8Array): number {
 }
 
 export function decodeIndex(json: Uint8Array): PackIndex {
-  return JSON.parse(decoder.decode(json)) as PackIndex;
+  const index = JSON.parse(decoder.decode(json)) as PackIndex;
+  if (index.encrypted) return { spa: false, files: index.files.map((file, number) => opaqueEntry(number, file.offset, file.length)), encrypted: index.encrypted };
+  return index;
 }
 
 export function checkIndex(json: Uint8Array, dataLength: number): IndexCheck {
@@ -44,6 +52,7 @@ export function checkIndex(json: Uint8Array, dataLength: number): IndexCheck {
     return { problem: "The pack index is not valid JSON." };
   }
   if (typeof parsed !== "object" || parsed === null) return { problem: "The pack index must be a JSON object." };
+  if ("encrypted" in parsed) return checkEncryptedIndex(parsed as { encrypted?: unknown; files?: unknown }, dataLength);
   const { spa, files } = parsed as { spa?: unknown; files?: unknown };
   if (typeof spa !== "boolean") return { problem: "The pack index needs spa set to true or false." };
   if (!Array.isArray(files) || files.length === 0) return { problem: "The pack has no files." };
@@ -68,6 +77,42 @@ export function checkIndex(json: Uint8Array, dataLength: number): IndexCheck {
   }
   if (expectedOffset !== dataLength) return { problem: "The pack's file lengths do not add up to the upload size." };
   return { index: { spa, files: checked } };
+}
+
+function checkEncryptedIndex(parsed: { encrypted?: unknown; files?: unknown }, dataLength: number): IndexCheck {
+  const encrypted = checkEncrypted(parsed.encrypted);
+  if (encrypted === null) return { problem: "The pack's encrypted details need a contentSalt and either a name or a linkSalt." };
+  const { files } = parsed;
+  if (!Array.isArray(files) || files.length < 2) return { problem: "The pack has no files." };
+  if (files.length > MAX_FILES + 1) return { problem: `A deploy can hold at most ${MAX_FILES} files.` };
+
+  const entries: PackFile[] = [];
+  let expectedOffset = 0;
+  for (const [number, entry] of (files as unknown[]).entries()) {
+    if (typeof entry !== "object" || entry === null) return { problem: "Every pack entry must be an object." };
+    const { offset, length } = entry as { offset?: unknown; length?: unknown };
+    if (Object.keys(entry).length !== 2) return { problem: `Encrypted pack entry ${number} must have only an offset and a length.` };
+    if (offset !== expectedOffset) return { problem: `The pack's offsets do not line up at entry ${number}.` };
+    if (typeof length !== "number" || !Number.isSafeInteger(length) || length < 0) return { problem: `The pack has a bad length for entry ${number}.` };
+    entries.push(opaqueEntry(number, offset, length));
+    expectedOffset += length;
+  }
+  if (expectedOffset !== dataLength) return { problem: "The pack's file lengths do not add up to the upload size." };
+  return { index: { spa: false, files: entries, encrypted } };
+}
+
+function checkEncrypted(value: unknown): Encrypted | null {
+  if (typeof value !== "object" || value === null) return null;
+  const { name, linkSalt, contentSalt } = value as { name?: unknown; linkSalt?: unknown; contentSalt?: unknown };
+  if (typeof contentSalt !== "string" || !SALT_PATTERN.test(contentSalt)) return null;
+  if (Object.keys(value).length !== 2) return null;
+  if (typeof name === "string" && nameProblem(name) === null) return { name, contentSalt };
+  if (typeof linkSalt === "string" && SALT_PATTERN.test(linkSalt)) return { linkSalt, contentSalt };
+  return null;
+}
+
+function opaqueEntry(number: number, offset: number, length: number): PackFile {
+  return { path: String(number), offset, length, type: ENTRY_TYPE, gzip: false };
 }
 
 export function validPath(path: string): boolean {
