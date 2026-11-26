@@ -65,7 +65,7 @@ async function serveEncrypted(request: Request, env: Env, ctx: ExecutionContext,
     return serveFile(request, env, ctx, deploy, number, 200, named);
   }
   return new Response(privateSitePage(), {
-    headers: { "Content-Type": "text/html; charset=utf-8", "X-Content-Type-Options": "nosniff", "Cache-Control": REVALIDATE, "Referrer-Policy": "no-referrer" }
+    headers: { "Content-Type": "text/html; charset=utf-8", "X-Content-Type-Options": "nosniff", "Cache-Control": REVALIDATE, "Referrer-Policy": "no-referrer", "X-Site-Bootstrap": "1" }
   });
 }
 

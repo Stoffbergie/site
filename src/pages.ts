@@ -133,6 +133,7 @@ export function privateSitePage(): string {
 <section data-state="wrong" hidden><h1>This key does not open this site</h1><p>Check that the link is complete, or ask whoever shared it for a new one.</p></section>
 <section data-state="unsupported" hidden><h1>This browser cannot open private sites</h1><p>Private sites are decrypted by a service worker. Open the full link in a regular window of a current browser.</p></section>
 <section data-state="failed" hidden><h1>Could not open this site</h1><p>Reload the page to try again.</p></section>
+<section data-state="stuck" hidden><h1>This page did not open</h1><p>Go to the <a href="/">home page</a>, or open the full link again.</p></section>
 <script src="/__site/boot.js"></script>`,
     { description: "A private site." }
   );

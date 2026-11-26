@@ -494,6 +494,33 @@ add(
   },
   { modes: ["private"] }
 );
+const endsStuck = async (t: T): Promise<void> => {
+  await t.waitFor(`document.querySelector('[data-state="stuck"]')?.hidden === false`);
+  await t.eval(`window.stayed = true`);
+  await t.page.waitForTimeout(2000);
+  assert.equal(await t.eval(`window.stayed === true && document.querySelector('[data-state="stuck"]')?.hidden === false`), true);
+};
+add(
+  "flat",
+  "a reserved path the service worker leaves alone stops reopening and says what to do",
+  async (t) => {
+    await warm(t);
+    await t.page.goto(t.at("/__site/missing"));
+    await endsStuck(t);
+  },
+  { modes: ["private"] }
+);
+add(
+  "flat",
+  "a full link to a reserved path stops and says what to do",
+  async (t) => {
+    await warm(t);
+    t.page = await t.context.newPage();
+    await t.open("/__site/missing");
+    await endsStuck(t);
+  },
+  { modes: ["private"] }
+);
 add(
   "flat",
   "several tabs",

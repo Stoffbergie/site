@@ -1,6 +1,6 @@
 import { fetchMeta, forgetKey, openDeploy, readKey, saveKey, WrongKey } from "./site";
 
-type State = "private" | "wrong" | "unsupported" | "failed";
+type State = "private" | "wrong" | "unsupported" | "failed" | "stuck";
 
 const CONTROL_TIMEOUT_MS = 5000;
 
@@ -17,6 +17,7 @@ const OPENING_PATH = "/__site/opening";
 const OPENING_MARK = "site-opening";
 const REOPEN_WINDOW_MS = 5000;
 const MAX_REOPENS = 3;
+const BOOTSTRAP_HEADER = "X-Site-Bootstrap";
 
 function readLink(): Link {
   const fragment = location.hash.slice(1);
@@ -36,15 +37,16 @@ function dropKey(link: Link): void {
 }
 
 function keepsReopening(target: string): boolean {
+  const cameFromReopen = document.referrer === `${location.origin}${OPENING_PATH}`;
   try {
-    let count = 1;
+    let count = 0;
     const mark = sessionStorage.getItem(OPENING_MARK);
-    if (mark !== null) {
+    if (cameFromReopen && mark !== null) {
       const previous = JSON.parse(mark) as { target: string; at: number; count: number };
       if (previous.target === target && Date.now() - previous.at < REOPEN_WINDOW_MS) count = previous.count + 1;
     }
     sessionStorage.setItem(OPENING_MARK, JSON.stringify({ target, at: Date.now(), count }));
-    return count > MAX_REOPENS;
+    return count >= MAX_REOPENS;
   } catch {
     return false;
   }
@@ -97,10 +99,22 @@ function waitForControl(registration: ServiceWorkerRegistration): Promise<boolea
   });
 }
 
-async function workerOpensSite(): Promise<boolean> {
+type WorkerAnswer = "page" | "bootstrap" | "unavailable";
+
+async function askWorker(): Promise<WorkerAnswer> {
   const response = await fetch(location.pathname + location.search, { cache: "no-store" });
   await response.body?.cancel();
-  return response.status !== 503;
+  if (response.headers.has(BOOTSTRAP_HEADER)) return "bootstrap";
+  if (response.status === 503) return "unavailable";
+  return "page";
+}
+
+function reopen(link: Link, reopenedTooOften: boolean): void {
+  if (reopenedTooOften) {
+    show("stuck");
+    return;
+  }
+  openPage(link);
 }
 
 async function boot(): Promise<void> {
@@ -138,7 +152,9 @@ async function boot(): Promise<void> {
   }
   dropKey(link);
   if (controlledAlready) {
-    if (await workerOpensSite()) openPage(link);
+    const answer = await askWorker();
+    if (answer === "page") reopen(link, reopening);
+    else if (answer === "bootstrap") show("stuck");
     else show("failed");
     return;
   }
@@ -149,7 +165,7 @@ async function boot(): Promise<void> {
     show("unsupported");
     return;
   }
-  openPage(link);
+  reopen(link, reopening);
 }
 
 window.addEventListener("hashchange", () => {
