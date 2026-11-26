@@ -12,6 +12,23 @@ const SECRET_SEPARATOR: char = '.';
 #[serde(default)]
 pub struct Config {
     pub key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub secret: Option<String>,
+}
+
+impl Config {
+    fn saved_key(&self) -> Option<Key> {
+        let api = self.key.as_deref()?;
+        match &self.secret {
+            Some(secret) => Key::parse(&format!("{api}{SECRET_SEPARATOR}{secret}")),
+            None => Key::parse(api),
+        }
+    }
+
+    fn hold(&mut self, key: &Key) {
+        self.key = Some(key.api.clone());
+        self.secret = key.secret.clone();
+    }
 }
 
 pub struct Key {
@@ -62,11 +79,11 @@ pub fn key() -> Result<Key> {
             .context("SITE_KEY is not a site key; copy the whole key printed by site key");
     }
     let mut config = load()?;
-    if let Some(saved) = &config.key {
-        let mut key = Key::parse(saved).with_context(unreadable_key)?;
+    if config.key.is_some() {
+        let mut key = config.saved_key().with_context(unreadable_key)?;
         if key.secret.is_none() {
             key.secret = Some(random_text()?);
-            config.key = Some(key.full());
+            config.hold(&key);
             save(&config)?;
         }
         return Ok(key);
@@ -75,12 +92,11 @@ pub fn key() -> Result<Key> {
         api: format!("{KEY_PREFIX}{}", random_text()?),
         secret: Some(random_text()?),
     };
-    config.key = Some(key.full());
+    config.hold(&key);
     if save_first(&config)? {
         return Ok(key);
     }
-    let saved = load()?.key.with_context(unreadable_key)?;
-    Key::parse(&saved).with_context(unreadable_key)
+    load()?.saved_key().with_context(unreadable_key)
 }
 
 fn unreadable_key() -> String {
@@ -100,16 +116,16 @@ pub fn replace(new_key: &str) -> Result<()> {
         );
     };
     let mut config = load()?;
-    if let Some(existing) = &config.key {
-        if existing == new_key {
+    if let Some(existing) = config.saved_key() {
+        if existing.full() == parsed.full() {
             eprintln!("This key is already saved on this machine.");
             return Ok(());
         }
-        if !confirm_replace(existing)? {
+        if !confirm_replace(&existing.full())? {
             bail!("kept the existing key");
         }
     }
-    config.key = Some(new_key.to_string());
+    config.hold(&parsed);
     save(&config)?;
     eprintln!("Saved. Deploys and names made with this key can now be managed from this machine.");
     if parsed.secret.is_none() {

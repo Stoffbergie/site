@@ -35,6 +35,7 @@ export async function serveSite(request: Request, env: Env, ctx: ExecutionContex
 
   const url = new URL(request.url);
   if (deploy.index.encrypted) return serveEncrypted(request, env, ctx, deploy, named, url.pathname);
+  if (url.pathname.startsWith("/__site/")) return notFound();
   const pathname = decodePath(url.pathname);
   if (pathname === null) return notFound();
   const target = resolve({ spa: deploy.index.spa, files: deploy.index.files, byPath: deploy.byPath }, pathname);

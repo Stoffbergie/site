@@ -1,5 +1,5 @@
 import { strict as assert } from "node:assert";
-import { mkdirSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "vite-plus/test";
 import { apiKeyOf, deploy, folder, keyOf, newHome, runCli } from "../helpers/site";
@@ -59,6 +59,9 @@ test("a key saved by an older site gains its private part and still owns its dep
   const upgraded = await keyOf(home);
   assert.match(upgraded, new RegExp(`^${olderKey}\\.[a-z0-9]{32}$`));
   assert.equal(await keyOf(home), upgraded, "the private part is made once");
+  const saved = JSON.parse(readFileSync(join(configDir, "config.json"), "utf8")) as { key: string; secret: string };
+  assert.equal(saved.key, olderKey, "an older site still reads only the login part");
+  assert.equal(`${saved.key}.${saved.secret}`, upgraded);
 });
 
 test("private sites need the whole key, not only the part the server sees", async () => {
@@ -69,4 +72,21 @@ test("private sites need the whole key, not only the part the server sees", asyn
 
   const plain = await runCli(["--no-copy", folder({ "index.html": "x" })], { env: { SITE_KEY: ` ${apiOnly}\n` } });
   assert.equal(plain.code, 0, plain.stderr);
+
+  const owner = newHome();
+  const name = `whole-${Math.random().toString(36).slice(2, 8)}`;
+  const first = await deploy(["--no-copy", "-e", "-n", name, folder({ "index.html": "one" })], { home: owner });
+  const firstId = /https:\/\/([a-z0-9]{8})\./.exec(first.run.stderr)?.[1] as string;
+  await deploy(["--no-copy", "-e", "-n", name, folder({ "index.html": "two" })], { home: owner });
+  const loginOnly = { env: { SITE_KEY: await apiKeyOf(owner) } };
+
+  const pointed = await runCli(["point", name, firstId], loginOnly);
+  assert.equal(pointed.code, 0, pointed.stderr);
+  assert.match(pointed.stdout, new RegExp(`^https://${name}\\.site\\.localhost\n$`));
+  assert.match(pointed.stderr, /Private links need the whole key/);
+
+  const listed = await runCli(["ls"], loginOnly);
+  assert.equal(listed.code, 0, listed.stderr);
+  assert.match(listed.stdout, new RegExp(`https://${firstId}\\.site\\.localhost +.*encrypted`));
+  assert.doesNotMatch(listed.stdout, /#/);
 });

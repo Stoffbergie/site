@@ -146,4 +146,10 @@ test("a released name can only be claimed again by the key that released it", as
 
   const again = await deploy(["--no-copy", "-n", name, folder({ "index.html": "second" })], { home });
   assert.equal((await visit(again.url)).text, "second");
+
+  const admin = { Authorization: `Bearer ${adminToken}` };
+  assert.equal((await fetch(`${baseUrl}/names/${name}`, { method: "DELETE", headers: admin })).status, 200);
+  const afterTakedown = await runCli(["--no-copy", "-n", name, folder({ "index.html": "third" })], { home });
+  assert.equal(afterTakedown.code, 1);
+  assert.match(afterTakedown.stderr, /site: that name is taken; pick another/);
 });

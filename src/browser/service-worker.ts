@@ -17,6 +17,10 @@ type ServiceWorkerScope = {
 
 const worker = self as unknown as ServiceWorkerScope;
 
+type Opened = { kind: "site"; site: Site } | { kind: "public" } | { kind: "locked" };
+
+const BOOTSTRAP_PATH = "/";
+
 let current: Site | null = null;
 
 worker.addEventListener("install", () => {
@@ -41,14 +45,19 @@ worker.addEventListener("fetch", (event) => {
 });
 
 async function answer(request: Request, url: URL): Promise<Response> {
-  let site: Site | null;
+  let opened: Opened;
   try {
-    site = await siteFor(request.mode === "navigate");
+    opened = await openFor(request.mode === "navigate");
   } catch {
-    site = null;
+    return unavailable();
   }
-  if (site === null) return fetch(request);
+  if (opened.kind === "public") return fetch(request);
+  if (opened.kind === "locked") {
+    if (request.mode === "navigate") return fetch(BOOTSTRAP_PATH, { cache: "no-store" });
+    return unavailable();
+  }
 
+  const site = opened.site;
   const pathname = decodePath(url.pathname);
   if (pathname === null) return notFound();
   const target = resolve(site, pathname);
@@ -58,10 +67,8 @@ async function answer(request: Request, url: URL): Promise<Response> {
   return serveFile(request, site, target.number, target.status);
 }
 
-async function siteFor(navigating: boolean): Promise<Site | null> {
-  if (current !== null && !navigating) return current;
-  const key = await readKey();
-  if (key === null) return null;
+async function openFor(navigating: boolean): Promise<Opened> {
+  if (current !== null && !navigating) return { kind: "site", site: current };
   let meta: Meta;
   try {
     meta = await fetchMeta();
@@ -69,19 +76,21 @@ async function siteFor(navigating: boolean): Promise<Site | null> {
     if (error instanceof NotPrivate) {
       current = null;
       await worker.registration.unregister();
-      return null;
+      return { kind: "public" };
     }
     throw error;
   }
-  if (current !== null && current.id === meta.id && current.key === key) return current;
+  const key = await readKey();
+  if (key === null) return { kind: "locked" };
+  if (current !== null && current.id === meta.id && current.key === key) return { kind: "site", site: current };
   try {
     current = await openDeploy(meta, key);
   } catch (error) {
     current = null;
-    if (error instanceof WrongKey) return null;
+    if (error instanceof WrongKey) return { kind: "locked" };
     throw error;
   }
-  return current;
+  return { kind: "site", site: current };
 }
 
 async function serveFile(request: Request, site: Site, number: number, status: 200 | 404): Promise<Response> {
@@ -187,6 +196,10 @@ function join(pieces: Uint8Array[], total: number): Uint8Array<ArrayBuffer> {
 
 function html(body: string): Response {
   return new Response(body, { headers: { "Content-Type": "text/html; charset=utf-8" } });
+}
+
+function unavailable(): Response {
+  return new Response("Could not load this site; reload the page.\n", { status: 503, headers: { "Content-Type": "text/plain; charset=utf-8" } });
 }
 
 function notFound(): Response {

@@ -8,6 +8,9 @@ mod crypto;
 mod output;
 mod pack;
 
+const PRIVATE_LINKS_NEED_WHOLE_KEY: &str =
+    "Private links need the whole key; set SITE_KEY to everything site key prints to see them";
+
 #[derive(Parser)]
 #[command(
     name = "site",
@@ -83,12 +86,17 @@ fn run(cli: Cli) -> Result<()> {
         Some(Command::Point { name, id }) => {
             let key = config::key()?;
             let pointed = api::point(&key.api, &name, &id)?;
+            let mut link = pointed.url.clone();
             if pointed.encrypted {
-                let fragment = LinkKey::for_name(key.secret()?, &name)?.fragment();
-                println!("{}", with_key(&pointed.url, &fragment));
-            } else {
-                println!("{}", pointed.url);
+                match key.secret() {
+                    Ok(secret) => {
+                        let fragment = LinkKey::for_name(secret, &name)?.fragment();
+                        link = with_key(&pointed.url, &fragment);
+                    }
+                    Err(_) => output::note(PRIVATE_LINKS_NEED_WHOLE_KEY),
+                }
             }
+            println!("{link}");
             Ok(())
         }
         Some(Command::Rm { target }) => {
@@ -170,18 +178,29 @@ fn list() -> Result<()> {
         output::note("No deploys yet. Deploy a folder with: site <folder>");
         return Ok(());
     }
+    let secret = key.secret().ok();
+    let lists_private_sites = listing.names.iter().any(|name| name.encrypted)
+        || listing
+            .deploys
+            .iter()
+            .any(|deploy| deploy.encrypted.is_some());
+    if secret.is_none() && lists_private_sites {
+        output::note(PRIVATE_LINKS_NEED_WHOLE_KEY);
+    }
     if !listing.names.is_empty() {
         println!("{}", output::dim("NAMES"));
         for name in &listing.names {
             let target = name.id.as_deref().unwrap_or("-");
             if name.encrypted {
-                let fragment = LinkKey::for_name(key.secret()?, &name.name)?.fragment();
+                let mut link = name.url.clone();
+                if let Some(secret) = secret {
+                    link = with_key(
+                        &name.url,
+                        &LinkKey::for_name(secret, &name.name)?.fragment(),
+                    );
+                }
                 let details = format!("→ {target}  encrypted");
-                println!(
-                    "{:<40} {}",
-                    with_key(&name.url, &fragment),
-                    output::dim(&details)
-                );
+                println!("{link:<40} {}", output::dim(&details));
             } else {
                 println!("{:<40} {}", name.url, output::dim(&format!("→ {target}")));
             }
@@ -202,14 +221,19 @@ fn list() -> Result<()> {
             );
             let mut link = deploy.url.clone();
             if let Some(hint) = &deploy.encrypted {
-                let link_key = match (&hint.name, &hint.link_salt) {
-                    (Some(name), _) => LinkKey::for_name(key.secret()?, name)?,
-                    (None, Some(link_salt)) => LinkKey::for_salt(key.secret()?, link_salt)?,
-                    (None, None) => {
-                        anyhow::bail!("the server listed {} without its link details", deploy.url)
-                    }
-                };
-                link = with_key(&deploy.url, &link_key.fragment());
+                if let Some(secret) = secret {
+                    let link_key = match (&hint.name, &hint.link_salt) {
+                        (Some(name), _) => LinkKey::for_name(secret, name)?,
+                        (None, Some(link_salt)) => LinkKey::for_salt(secret, link_salt)?,
+                        (None, None) => {
+                            anyhow::bail!(
+                                "the server listed {} without its link details",
+                                deploy.url
+                            )
+                        }
+                    };
+                    link = with_key(&deploy.url, &link_key.fragment());
+                }
                 details.push_str("  encrypted");
             }
             println!("{link:<40} {}", output::dim(&details));

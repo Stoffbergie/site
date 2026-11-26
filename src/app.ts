@@ -197,7 +197,7 @@ async function prepareClaim(c: AppContext, name: string, owner: string): Promise
     if (record.pointer.owner !== owner) return text("That name is taken; pick another.\n", 409);
     return { etag: record.etag, pointedId: record.pointer.id };
   }
-  if (record && record.releasedBy !== null && record.releasedBy !== owner) return text("That name is taken; pick another.\n", 409);
+  if (record && record.releasedBy !== owner) return text("That name is taken; pick another.\n", 409);
   const names = await ownedNames(c.env, owner);
   if (names.length >= MAX_NAMES) return text(`A key can hold ${MAX_NAMES} names; release one with site rm <name> first.\n`, 403);
   return { etag: record?.etag ?? null, pointedId: null };
