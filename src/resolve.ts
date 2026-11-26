@@ -71,7 +71,15 @@ function foldedPathsOf(files: ListedFile[]): Map<string, number> {
 }
 
 function fold(path: string): string {
-  return path.normalize("NFC").toLowerCase();
+  return path
+    .split("/")
+    .map((segment) => foldSegment(segment))
+    .join("/");
+}
+
+function foldSegment(segment: string): string {
+  if (segment.startsWith(".")) return segment;
+  return segment.normalize("NFC").toLowerCase();
 }
 
 function firstMatch(paths: string[], lookup: (path: string) => number | undefined): number | undefined {
