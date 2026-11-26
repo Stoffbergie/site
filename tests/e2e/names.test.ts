@@ -1,6 +1,6 @@
 import { strict as assert } from "node:assert";
 import { test } from "vite-plus/test";
-import { adminToken, baseUrl, deploy, folder, idUrl, keyOf, newHome, runCli, uniqueName, upload, visit } from "../helpers/site";
+import { adminToken, baseUrl, deploy, folder, idUrl, apiKeyOf, keyOf, newHome, runCli, uniqueName, upload, visit } from "../helpers/site";
 
 test("a name points at the latest deploy and a redeploy is visible on the very next load", async () => {
   const home = newHome();
@@ -115,7 +115,7 @@ test.each([
 
 test("a key holds at most 20 names", async () => {
   const home = newHome();
-  const key = await keyOf(home);
+  const key = await apiKeyOf(home);
   const headers = { Authorization: `Bearer ${key}`, "content-type": "application/json" };
   const { run } = await deploy(["--no-copy", folder({ "index.html": "x" })], { home });
   const id = /https:\/\/([a-z0-9]{8})\./.exec(run.stdout)?.[1] as string;
@@ -132,4 +132,18 @@ test("a key holds at most 20 names", async () => {
 test("naming a deploy needs a key", async () => {
   const response = await upload(`/page.html?name=${uniqueName("anon")}`, "<h1>hi</h1>");
   assert.equal(response.status, 401);
+});
+
+test("a released name can only be claimed again by the key that released it", async () => {
+  const home = newHome();
+  const name = uniqueName("mine");
+  await deploy(["--no-copy", "-n", name, folder({ "index.html": "first" })], { home });
+  assert.equal((await runCli(["rm", name], { home })).code, 0);
+
+  const stranger = await runCli(["--no-copy", "-n", name, folder({ "index.html": "theirs" })]);
+  assert.equal(stranger.code, 1);
+  assert.match(stranger.stderr, /site: that name is taken; pick another/);
+
+  const again = await deploy(["--no-copy", "-n", name, folder({ "index.html": "second" })], { home });
+  assert.equal((await visit(again.url)).text, "second");
 });

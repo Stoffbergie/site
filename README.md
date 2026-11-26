@@ -82,7 +82,7 @@ site ls
 site point todo k3m9xq2a
 ```
 
-A deploy a name points at can't be removed until the name moves or is released with `site rm todo`.
+A deploy a name points at can't be removed until the name moves or is released with `site rm todo`. A released name stays yours: only your key can claim it again.
 
 Names are 3 to 40 lowercase letters, digits and hyphens. Each key holds up to 20.
 
@@ -109,6 +109,7 @@ What it protects and what it doesn't:
 
 - Anyone with the full link can read the site. Share it like a password.
 - The server, and anyone with only the URL before `#`, cannot. They get a page saying the site is private.
+- The address of a page someone opens directly or hard-reloads reaches the server as a request path, like any URL. Contents, and the names of everything else, do not.
 - To take access away, remove the deploy with `site rm`, or release the name. There is no other revocation.
 - A name holding an encrypted site never turns public by accident: deploying to it without `-e` is refused.
 - It needs JavaScript and service workers, so it opens in current browsers but not in private windows that turn service workers off. Encrypting needs the CLI; there is no encrypted deploy through curl.
@@ -121,8 +122,10 @@ To use the same sites from another machine, print the key on the first and save 
 
 ```sh
 site key                 # on the first machine
-site key site_…          # on the second
+site key site_….…        # on the second
 ```
+
+The key has two parts joined by a dot. The part before the dot signs you in. The part after it never leaves your machines and makes the links of private sites, so the server cannot open them.
 
 `site key <key>` asks before replacing a different key, and refuses in scripts. In CI, set `SITE_KEY` instead.
 
@@ -151,10 +154,10 @@ curl -T page.html https://site.stoff.dev
 With your key, the deploy is yours, and you can name it, list and remove:
 
 ```sh
-curl -T page.html -H 'Authorization: Bearer <key>' 'https://site.stoff.dev/?name=todo'
-curl -H 'Authorization: Bearer <key>' https://site.stoff.dev/list
-curl -X DELETE -H 'Authorization: Bearer <key>' https://site.stoff.dev/deploys/<id>
-curl -X DELETE -H 'Authorization: Bearer <key>' https://site.stoff.dev/names/<name>
+curl -T page.html -H 'Authorization: Bearer <key before the dot>' 'https://site.stoff.dev/?name=todo'
+curl -H 'Authorization: Bearer <key before the dot>' https://site.stoff.dev/list
+curl -X DELETE -H 'Authorization: Bearer <key before the dot>' https://site.stoff.dev/deploys/<id>
+curl -X DELETE -H 'Authorization: Bearer <key before the dot>' https://site.stoff.dev/names/<name>
 ```
 
 Add `-H 'Accept: application/json'` to a deploy for JSON. A deploy without a key can't be removed by you; ask through [issues](https://github.com/Stoffbergie/site/issues) if one needs taking down. `curl https://site.stoff.dev` prints the full usage.

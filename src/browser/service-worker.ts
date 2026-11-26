@@ -1,6 +1,6 @@
 import { fileListPage } from "../pages";
 import { decodePath, parseRange, resolve, type ByteRange } from "../resolve";
-import { CHUNK_SIZE, chunkCount, fetchEntry, fetchMeta, openChunk, openDeploy, readKey, SEALED_CHUNK_SIZE, TAG_SIZE, WrongKey, type Site } from "./site";
+import { CHUNK_SIZE, chunkCount, fetchEntry, fetchMeta, NotPrivate, openChunk, openDeploy, readKey, SEALED_CHUNK_SIZE, TAG_SIZE, WrongKey, type Meta, type Site } from "./site";
 
 type ExtendableEvent = Event & { waitUntil(promise: Promise<unknown>): void };
 type FetchEvent = ExtendableEvent & { readonly request: Request; respondWith(response: Promise<Response>): void };
@@ -8,6 +8,7 @@ type MessageEvent = ExtendableEvent & { readonly data: unknown };
 type ServiceWorkerScope = {
   readonly location: Location;
   readonly clients: { claim(): Promise<void> };
+  readonly registration: { unregister(): Promise<boolean> };
   skipWaiting(): Promise<void>;
   addEventListener(type: "install" | "activate", listener: (event: ExtendableEvent) => void): void;
   addEventListener(type: "message", listener: (event: MessageEvent) => void): void;
@@ -61,7 +62,17 @@ async function siteFor(navigating: boolean): Promise<Site | null> {
   if (current !== null && !navigating) return current;
   const key = await readKey();
   if (key === null) return null;
-  const meta = await fetchMeta();
+  let meta: Meta;
+  try {
+    meta = await fetchMeta();
+  } catch (error) {
+    if (error instanceof NotPrivate) {
+      current = null;
+      await worker.registration.unregister();
+      return null;
+    }
+    throw error;
+  }
   if (current !== null && current.id === meta.id && current.key === key) return current;
   try {
     current = await openDeploy(meta, key);

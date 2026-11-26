@@ -71,6 +71,10 @@ export async function keyOf(home: string): Promise<string> {
   return (await runCli(["key"], { home })).stdout.trim();
 }
 
+export async function apiKeyOf(home: string): Promise<string> {
+  return (await keyOf(home)).split(".")[0];
+}
+
 export function newHome(): string {
   return mkdtempSync(join(tmpdir(), "site-cli-"));
 }

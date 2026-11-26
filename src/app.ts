@@ -23,6 +23,8 @@ type AppContext = Context<{ Bindings: Env }>;
 type Caller = { kind: "admin" } | { kind: "key"; owner: string } | { kind: "anonymous" } | { kind: "invalid" };
 type Claim = { etag: string | null; pointedId: string | null };
 
+const RELEASED_BY_ADMIN = "admin";
+
 export const app = new Hono<{ Bindings: Env }>();
 
 app.use("*", async (c, next) => {
@@ -112,7 +114,9 @@ app.delete("/names/:name", async (c) => {
   const record = await readPointerRecord(c.env, name);
   if (!record?.pointer) return text(`No name ${name}; run site ls to see yours.\n`, 404);
   if (caller.kind === "key" && record.pointer.owner !== caller.owner) return text("That name belongs to another key.\n", 403);
-  if (!(await releasePointer(c.env, name, record.pointer.owner, record.etag))) return text("That name changed while releasing it; try again.\n", 409);
+  let releasedBy = RELEASED_BY_ADMIN;
+  if (caller.kind === "key") releasedBy = caller.owner;
+  if (!(await releasePointer(c.env, name, record.pointer.owner, releasedBy, record.etag))) return text("That name changed while releasing it; try again.\n", 409);
   return text("released\n");
 });
 
@@ -193,6 +197,7 @@ async function prepareClaim(c: AppContext, name: string, owner: string): Promise
     if (record.pointer.owner !== owner) return text("That name is taken; pick another.\n", 409);
     return { etag: record.etag, pointedId: record.pointer.id };
   }
+  if (record && record.releasedBy !== null && record.releasedBy !== owner) return text("That name is taken; pick another.\n", 409);
   const names = await ownedNames(c.env, owner);
   if (names.length >= MAX_NAMES) return text(`A key can hold ${MAX_NAMES} names; release one with site rm <name> first.\n`, 403);
   return { etag: record?.etag ?? null, pointedId: null };

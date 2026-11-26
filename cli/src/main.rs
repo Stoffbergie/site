@@ -82,9 +82,9 @@ fn run(cli: Cli) -> Result<()> {
         Some(Command::Ls) => list(),
         Some(Command::Point { name, id }) => {
             let key = config::key()?;
-            let pointed = api::point(&key, &name, &id)?;
+            let pointed = api::point(&key.api, &name, &id)?;
             if pointed.encrypted {
-                let fragment = LinkKey::for_name(&key, &name)?.fragment();
+                let fragment = LinkKey::for_name(key.secret()?, &name)?.fragment();
                 println!("{}", with_key(&pointed.url, &fragment));
             } else {
                 println!("{}", pointed.url);
@@ -94,16 +94,16 @@ fn run(cli: Cli) -> Result<()> {
         Some(Command::Rm { target }) => {
             let key = config::key()?;
             if api::is_deploy_id(&target) {
-                api::delete_deploy(&key, &target)?;
+                api::delete_deploy(&key.api, &target)?;
                 output::note(&format!("Deleted {target}"));
             } else {
-                api::release_name(&key, &target)?;
+                api::release_name(&key.api, &target)?;
                 output::note(&format!("Released {target}"));
             }
             Ok(())
         }
         Some(Command::Key { key: None }) => {
-            println!("{}", config::key()?);
+            println!("{}", config::key()?.full());
             Ok(())
         }
         Some(Command::Key { key: Some(key) }) => config::replace(&key),
@@ -121,11 +121,11 @@ fn deploy(
     let key = config::key()?;
     let link_key = match (encrypt, &name) {
         (false, _) => None,
-        (true, Some(name)) => Some(LinkKey::for_name(&key, name)?),
-        (true, None) => Some(LinkKey::fresh(&key)?),
+        (true, Some(name)) => Some(LinkKey::for_name(key.secret()?, name)?),
+        (true, None) => Some(LinkKey::fresh(key.secret()?)?),
     };
     let pack = pack::Pack::collect(&paths, spa, link_key.as_ref())?;
-    let mut deployed = api::deploy(&key, pack, name.as_deref())?;
+    let mut deployed = api::deploy(&key.api, pack, name.as_deref())?;
     if let Some(link_key) = &link_key {
         let fragment = link_key.fragment();
         deployed.url = with_key(&deployed.url, &fragment);
@@ -165,7 +165,7 @@ fn with_key(url: &str, fragment: &str) -> String {
 
 fn list() -> Result<()> {
     let key = config::key()?;
-    let listing = api::list(&key)?;
+    let listing = api::list(&key.api)?;
     if listing.names.is_empty() && listing.deploys.is_empty() {
         output::note("No deploys yet. Deploy a folder with: site <folder>");
         return Ok(());
@@ -175,7 +175,7 @@ fn list() -> Result<()> {
         for name in &listing.names {
             let target = name.id.as_deref().unwrap_or("-");
             if name.encrypted {
-                let fragment = LinkKey::for_name(&key, &name.name)?.fragment();
+                let fragment = LinkKey::for_name(key.secret()?, &name.name)?.fragment();
                 let details = format!("→ {target}  encrypted");
                 println!(
                     "{:<40} {}",
@@ -203,8 +203,8 @@ fn list() -> Result<()> {
             let mut link = deploy.url.clone();
             if let Some(hint) = &deploy.encrypted {
                 let link_key = match (&hint.name, &hint.link_salt) {
-                    (Some(name), _) => LinkKey::for_name(&key, name)?,
-                    (None, Some(link_salt)) => LinkKey::for_salt(&key, link_salt)?,
+                    (Some(name), _) => LinkKey::for_name(key.secret()?, name)?,
+                    (None, Some(link_salt)) => LinkKey::for_salt(key.secret()?, link_salt)?,
                     (None, None) => {
                         anyhow::bail!("the server listed {} without its link details", deploy.url)
                     }

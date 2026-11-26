@@ -26,24 +26,24 @@ pub struct Sealer {
 }
 
 impl LinkKey {
-    pub fn for_name(site_key: &str, name: &str) -> Result<LinkKey> {
-        LinkKey::derive(site_key, LinkHint::Name(name.to_string()))
+    pub fn for_name(secret: &str, name: &str) -> Result<LinkKey> {
+        LinkKey::derive(secret, LinkHint::Name(name.to_string()))
     }
 
-    pub fn for_salt(site_key: &str, link_salt: &str) -> Result<LinkKey> {
-        LinkKey::derive(site_key, LinkHint::Salt(link_salt.to_string()))
+    pub fn for_salt(secret: &str, link_salt: &str) -> Result<LinkKey> {
+        LinkKey::derive(secret, LinkHint::Salt(link_salt.to_string()))
     }
 
-    pub fn fresh(site_key: &str) -> Result<LinkKey> {
-        LinkKey::for_salt(site_key, &random_salt()?)
+    pub fn fresh(secret: &str) -> Result<LinkKey> {
+        LinkKey::for_salt(secret, &random_salt()?)
     }
 
-    fn derive(site_key: &str, hint: LinkHint) -> Result<LinkKey> {
+    fn derive(secret: &str, hint: LinkHint) -> Result<LinkKey> {
         let info = match &hint {
             LinkHint::Name(name) => format!("site link v1 name:{name}"),
             LinkHint::Salt(salt) => format!("site link v1 deploy:{salt}"),
         };
-        let bytes = hkdf(&[], site_key.as_bytes(), info.as_bytes())?;
+        let bytes = hkdf(&[], secret.as_bytes(), info.as_bytes())?;
         Ok(LinkKey { hint, bytes })
     }
 

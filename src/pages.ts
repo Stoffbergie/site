@@ -68,9 +68,9 @@ function usage(origin: string, domain: string): Section[] {
       title: "curl",
       rows: [
         [`curl -T page.html ${origin}`, "Deploy one file", "Upload a single file; its type comes from the filename and it is served at / and under its name. Prints the URL."],
-        [`curl -T page.html -H 'Authorization: Bearer <key>' '${origin}/?name=todo'`, "Name it", "Deploy with your key to own the deploy and claim or move a name."],
-        [`curl -H 'Authorization: Bearer <key>' ${origin}/list`, "List as JSON", "Your names and deploys."],
-        [`curl -X DELETE -H 'Authorization: Bearer <key>' ${origin}/deploys/<id>`, "Delete a deploy", "Remove a deploy you own. DELETE /names/<name> releases a name."]
+        [`curl -T page.html -H 'Authorization: Bearer <key before the dot>' '${origin}/?name=todo'`, "Name it", "Deploy with your key to own the deploy and claim or move a name."],
+        [`curl -H 'Authorization: Bearer <key before the dot>' ${origin}/list`, "List as JSON", "Your names and deploys."],
+        [`curl -X DELETE -H 'Authorization: Bearer <key before the dot>' ${origin}/deploys/<id>`, "Delete a deploy", "Remove a deploy you own. DELETE /names/<name> releases a name."]
       ]
     }
   ];

@@ -1,5 +1,7 @@
 import { strict as assert } from "node:assert";
 import { randomBytes } from "node:crypto";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { test } from "vite-plus/test";
 import { deploy, folder, hostOf, idUrl, keyOf, newHome, runCli, uniqueName, upload, visit } from "../helpers/site";
 
@@ -184,4 +186,30 @@ test("the server refuses encrypted packs that carry anything but offsets and len
     ]
   };
   assert.equal((await upload("/", pack(short, randomBytes(40)), {}, "POST")).status, 400);
+});
+
+test("the part of the key that makes private links is never sent to the server", async () => {
+  const home = newHome();
+  const key = await keyOf(home);
+  const [apiPart, privatePart] = key.split(".");
+  const seen: string[] = [];
+  const recorder = createServer((request, response) => {
+    seen.push(`${request.url} ${JSON.stringify(request.headers)}`);
+    request.resume();
+    request.on("end", () => response.writeHead(500).end("stop here\n"));
+  });
+  await new Promise<void>((resolve) => recorder.listen(0, "127.0.0.1", resolve));
+  const recorderUrl = `http://127.0.0.1:${(recorder.address() as AddressInfo).port}`;
+  try {
+    const root = folder({ "index.html": "x" });
+    await runCli(["--no-copy", "-e", "-n", uniqueName("quiet"), root], { home, env: { SITE_URL: recorderUrl } });
+    await runCli(["ls"], { home, env: { SITE_URL: recorderUrl } });
+  } finally {
+    await new Promise((resolve) => recorder.close(resolve));
+  }
+  assert.equal(seen.length, 2);
+  for (const request of seen) {
+    assert.ok(request.includes(`Bearer ${apiPart}"`), "the login part authenticates");
+    assert.ok(!request.includes(privatePart), "the private part stays on the machine");
+  }
 });

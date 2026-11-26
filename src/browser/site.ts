@@ -13,9 +13,11 @@ export type Site = Listing & { id: string; key: string; files: SealedFile[]; con
 export type Meta = { id: string; encrypted: { contentSalt: string }; entries: number[] };
 
 export class WrongKey extends Error {}
+export class NotPrivate extends Error {}
 
 export async function fetchMeta(): Promise<Meta> {
   const response = await fetch("/__site/meta", { cache: "no-store" });
+  if (response.status === 404) throw new NotPrivate();
   if (!response.ok) throw new Error(`Could not load the site: ${response.status}`);
   return (await response.json()) as Meta;
 }
@@ -88,8 +90,12 @@ async function openWhole(contentKey: CryptoKey, entry: number, sealed: Uint8Arra
 export function fromBase64Url(text: string): Uint8Array<ArrayBuffer> | null {
   if (!/^[A-Za-z0-9_-]*$/.test(text)) return null;
   const base64 = text.replace(/-/g, "+").replace(/_/g, "/");
-  const binary = atob(base64.padEnd(Math.ceil(base64.length / 4) * 4, "="));
-  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  try {
+    const binary = atob(base64.padEnd(Math.ceil(base64.length / 4) * 4, "="));
+    return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  } catch {
+    return null;
+  }
 }
 
 export async function readKey(): Promise<string | null> {

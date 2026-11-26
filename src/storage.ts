@@ -27,7 +27,7 @@ export type Deploy = { id: string; index: PackIndex; dataStart: number; byPath: 
 export type Stored = { id: string; files: number; size: number; encrypted: Encrypted | null };
 export type StoreResult = { stored: Stored } | { problem: string; status: 400 | 411 | 413 };
 export type Pointer = { id: string; owner: string };
-export type PointerRecord = { etag: string; pointer: Pointer | null };
+export type PointerRecord = { etag: string; pointer: Pointer | null; releasedBy: string | null };
 
 const memory = new Map<string, { deploy: Deploy; loadedAt: number }>();
 
@@ -168,8 +168,8 @@ export async function readPointerRecord(env: Env, name: string): Promise<Pointer
   if (!object) return null;
   const id = object.customMetadata?.id;
   const owner = object.customMetadata?.owner;
-  if (!id || !owner) return { etag: object.etag, pointer: null };
-  return { etag: object.etag, pointer: { id, owner } };
+  if (!id || !owner) return { etag: object.etag, pointer: null, releasedBy: object.customMetadata?.releasedBy ?? null };
+  return { etag: object.etag, pointer: { id, owner }, releasedBy: null };
 }
 
 export async function readPointer(env: Env, name: string): Promise<Pointer | null> {
@@ -185,8 +185,8 @@ export async function writePointer(env: Env, name: string, owner: string, id: st
   return true;
 }
 
-export async function releasePointer(env: Env, name: string, owner: string, previousEtag: string): Promise<boolean> {
-  const written = await env.SITES.put(nameKey(name), crypto.randomUUID(), { onlyIf: versionCondition(previousEtag) });
+export async function releasePointer(env: Env, name: string, owner: string, releasedBy: string, previousEtag: string): Promise<boolean> {
+  const written = await env.SITES.put(nameKey(name), crypto.randomUUID(), { customMetadata: { releasedBy }, onlyIf: versionCondition(previousEtag) });
   if (!written) return false;
   await env.SITES.delete(ownedNameKey(owner, name));
   return true;
