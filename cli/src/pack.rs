@@ -681,9 +681,19 @@ fn gzip_bytes(bytes: &[u8]) -> std::io::Result<Vec<u8>> {
     encoder.finish()
 }
 
+const LARGEST_BEST_BROTLI_BYTES: usize = 1024 * 1024;
+const LARGE_BROTLI_QUALITY: u8 = 5;
+const LARGE_BROTLI_WINDOW_BITS: u8 = 18;
+
 fn brotli_bytes(bytes: &[u8]) -> std::io::Result<Vec<u8>> {
-    let quality = brotlic::Quality::best();
-    let window = brotlic::WindowSize::default();
+    let (quality, window) = if bytes.len() <= LARGEST_BEST_BROTLI_BYTES {
+        (brotlic::Quality::best(), brotlic::WindowSize::default())
+    } else {
+        let quality = brotlic::Quality::new(LARGE_BROTLI_QUALITY).map_err(std::io::Error::other)?;
+        let window =
+            brotlic::WindowSize::new(LARGE_BROTLI_WINDOW_BITS).map_err(std::io::Error::other)?;
+        (quality, window)
+    };
     let bound = brotlic::compress_bound(bytes.len(), quality).unwrap_or(bytes.len() + 1024);
     let mut compressed = vec![0; bound];
     let written = brotlic::compress(
