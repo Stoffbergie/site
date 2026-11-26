@@ -1,10 +1,11 @@
+use crate::api::Progress;
 use crate::charset::{fit_charset, fit_charset_streamed};
 use crate::crypto::{self, LinkHint, LinkKey, Sealer};
 use crate::dotfiles::{self, DotName};
+use crate::reuse::{Earlier, Known, StoredFile, content_hash, hash_hex};
 use crate::rules::{self, Rules};
 use crate::types;
 use anyhow::{Context, Result, bail};
-use flate2::Compression;
 use flate2::bufread::GzDecoder;
 use flate2::write::GzEncoder;
 use serde::Serialize;
@@ -12,28 +13,46 @@ use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufRead, BufReader, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-pub const MAGIC: &[u8] = b"SITEPACK1\n";
+pub const PUBLIC_MAGIC: &[u8] = b"SITEPACK2\n";
+pub const ENCRYPTED_MAGIC: &[u8] = b"SITEPACK1\n";
 pub const MAX_DEPLOY_BYTES: u64 = 100_000_000;
 pub const MAX_FILES: usize = 5000;
 const MAX_INDEX_BYTES: usize = 2_000_000;
+const MAX_COMPRESSED_INDEX_BYTES: usize = 262_144;
+const LONGEST_ORIGIN: &str = "00000000-0000";
+const MAX_REUSED_RUNS: usize = 100;
+const MAX_REUSED_DEPLOYS: usize = 8;
+const LARGEST_SPOOL_IN_MEMORY: u64 = 1024 * 1024;
+const LEAST_WORTH_REUSING: u64 = 4096;
+const BROTLI: &str = "br";
+const GZIP: &str = "gzip";
 
 #[derive(Serialize)]
-struct Index<'a> {
+struct CompactIndex<'a> {
     spa: bool,
-    files: &'a [Entry],
+    files: &'a [CompactEntry],
     #[serde(skip_serializing_if = "Option::is_none")]
     rules: Option<&'a Rules>,
 }
 
 #[derive(Serialize)]
-struct Entry {
+struct CompactEntry {
     path: String,
-    offset: u64,
     length: u64,
-    #[serde(rename = "type")]
-    content_type: &'static str,
-    gzip: bool,
+    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
+    content_type: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    encoding: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reuse: Option<ReuseRef>,
+}
+
+#[derive(Serialize)]
+struct ReuseRef {
+    id: String,
+    file: usize,
 }
 
 #[derive(Serialize)]
@@ -51,6 +70,26 @@ struct SealedEntry<'a> {
     content_type: &'static str,
     gzip: bool,
     length: u64,
+}
+
+#[derive(Serialize)]
+struct StoredIndex<'a> {
+    spa: bool,
+    files: Vec<StoredEntry<'a>>,
+}
+
+#[derive(Serialize)]
+struct StoredEntry<'a> {
+    path: &'a str,
+    offset: u64,
+    length: u64,
+    #[serde(rename = "type")]
+    content_type: &'static str,
+    gzip: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    br: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    origin: Option<&'static str>,
 }
 
 #[derive(Serialize)]
@@ -75,15 +114,276 @@ struct OpaqueEntry {
     length: u64,
 }
 
+pub enum Source {
+    Path(PathBuf),
+    Bytes(Vec<u8>),
+}
+
+enum Body {
+    Bytes(Vec<u8>),
+    File { path: PathBuf, length: u64 },
+    Spooled(Spool),
+}
+
+struct Spool {
+    file: Arc<File>,
+    start: u64,
+    length: u64,
+}
+
+#[derive(Default)]
+struct Spooler {
+    shared: std::sync::Mutex<SpoolFile>,
+}
+
+#[derive(Default)]
+struct SpoolFile {
+    file: Option<Arc<File>>,
+    end: u64,
+}
+
+struct SpoolReader<'a> {
+    spool: &'a Spool,
+    position: u64,
+}
+
+impl Read for SpoolReader<'_> {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        let left = self.spool.length - self.position;
+        let wanted = (buffer.len() as u64).min(left) as usize;
+        if wanted == 0 {
+            return Ok(0);
+        }
+        let count = read_at(
+            &self.spool.file,
+            &mut buffer[..wanted],
+            self.spool.start + self.position,
+        )?;
+        if count == 0 {
+            return Err(std::io::ErrorKind::UnexpectedEof.into());
+        }
+        self.position += count as u64;
+        Ok(count)
+    }
+}
+
+#[cfg(unix)]
+fn read_at(file: &File, buffer: &mut [u8], offset: u64) -> std::io::Result<usize> {
+    std::os::unix::fs::FileExt::read_at(file, buffer, offset)
+}
+
+#[cfg(windows)]
+fn read_at(file: &File, buffer: &mut [u8], offset: u64) -> std::io::Result<usize> {
+    std::os::windows::fs::FileExt::seek_read(file, buffer, offset)
+}
+
+#[cfg(unix)]
+fn write_all_at(file: &File, bytes: &[u8], offset: u64) -> std::io::Result<()> {
+    std::os::unix::fs::FileExt::write_all_at(file, bytes, offset)
+}
+
+#[cfg(windows)]
+fn write_all_at(file: &File, bytes: &[u8], offset: u64) -> std::io::Result<()> {
+    let mut written = 0;
+    while written < bytes.len() {
+        let count = std::os::windows::fs::FileExt::seek_write(
+            file,
+            &bytes[written..],
+            offset + written as u64,
+        )?;
+        if count == 0 {
+            return Err(std::io::ErrorKind::WriteZero.into());
+        }
+        written += count;
+    }
+    Ok(())
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+const O_TMPFILE: Option<i32> = Some(0o20200000);
+#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+const O_TMPFILE: Option<i32> = Some(0o20040000);
+#[cfg(all(
+    unix,
+    not(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))
+))]
+const O_TMPFILE: Option<i32> = None;
+
+#[cfg(unix)]
+fn anonymous_file() -> std::io::Result<File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let folder = std::env::temp_dir();
+    if let Some(flag) = O_TMPFILE {
+        let unnamed = File::options()
+            .read(true)
+            .write(true)
+            .mode(0o600)
+            .custom_flags(flag)
+            .open(&folder);
+        if let Ok(file) = unnamed {
+            return Ok(file);
+        }
+    }
+    let path = folder.join(spool_name()?);
+    let file = File::options()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&path)?;
+    std::fs::remove_file(&path)?;
+    Ok(file)
+}
+
+#[cfg(windows)]
+fn anonymous_file() -> std::io::Result<File> {
+    use std::os::windows::fs::OpenOptionsExt;
+    const FILE_ATTRIBUTE_TEMPORARY: u32 = 0x100;
+    const FILE_FLAG_DELETE_ON_CLOSE: u32 = 0x0400_0000;
+    File::options()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .share_mode(0)
+        .attributes(FILE_ATTRIBUTE_TEMPORARY)
+        .custom_flags(FILE_FLAG_DELETE_ON_CLOSE)
+        .open(std::env::temp_dir().join(spool_name()?))
+}
+
+fn spool_name() -> std::io::Result<String> {
+    let mut random = [0u8; 8];
+    getrandom::fill(&mut random).map_err(std::io::Error::other)?;
+    Ok(format!(
+        "site-{}-{}.part",
+        std::process::id(),
+        hash_hex(&random)
+    ))
+}
+
+impl Body {
+    fn length(&self) -> u64 {
+        match self {
+            Body::Bytes(bytes) => bytes.len() as u64,
+            Body::File { length, .. } => *length,
+            Body::Spooled(spool) => spool.length,
+        }
+    }
+
+    fn stored_at(&self) -> Option<(&Path, u64)> {
+        match self {
+            Body::Bytes(_) => None,
+            Body::File { path, length } => Some((path, *length)),
+            Body::Spooled(_) => None,
+        }
+    }
+
+    fn open(&self) -> std::io::Result<Box<dyn Read + '_>> {
+        match self {
+            Body::Bytes(bytes) => Ok(Box::new(bytes.as_slice())),
+            Body::File { path, length } => Ok(Box::new(File::open(path)?.take(*length))),
+            Body::Spooled(spool) => Ok(Box::new(SpoolReader { spool, position: 0 })),
+        }
+    }
+}
+
+enum Spooling {
+    ReadFailed,
+    NoRoom,
+}
+
+fn spool(reader: &mut impl Read, spooler: &Spooler) -> Result<Body, Spooling> {
+    let mut head = Vec::new();
+    reader
+        .by_ref()
+        .take(LARGEST_SPOOL_IN_MEMORY + 1)
+        .read_to_end(&mut head)
+        .map_err(|_| Spooling::ReadFailed)?;
+    if head.len() as u64 <= LARGEST_SPOOL_IN_MEMORY {
+        return Ok(Body::Bytes(head));
+    }
+    let mut shared = spooler.shared.lock().expect("spool lock");
+    if shared.file.is_none() {
+        let file = anonymous_file().map_err(|_| Spooling::NoRoom)?;
+        shared.file = Some(Arc::new(file));
+    }
+    let file = Arc::clone(shared.file.as_ref().expect("spool file was just made"));
+    let start = shared.end;
+    write_all_at(&file, &head, start).map_err(|_| Spooling::NoRoom)?;
+    let mut length = head.len() as u64;
+    let mut buffer = vec![0u8; 64 * 1024];
+    loop {
+        let count = match reader.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(count) => count,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => return Err(Spooling::ReadFailed),
+        };
+        write_all_at(&file, &buffer[..count], start + length).map_err(|_| Spooling::NoRoom)?;
+        length += count as u64;
+    }
+    shared.end = start + length;
+    Ok(Body::Spooled(Spool {
+        file,
+        start,
+        length,
+    }))
+}
+
+fn no_room() -> anyhow::Error {
+    anyhow::anyhow!(
+        "the temporary folder ran out of space while preparing the deploy; free some disk space and deploy again"
+    )
+}
+
+fn too_large(size: u64) -> anyhow::Error {
+    anyhow::anyhow!(
+        "this deploy is {} and the limit is 100 MB; leave out large files or host them elsewhere",
+        crate::output::size(size)
+    )
+}
+
+enum Content<'a> {
+    Bytes(&'a [u8]),
+    File(&'a Path),
+    Decoded(&'a Path, Encoding),
+}
+
+struct Inspected<'a> {
+    path: &'a str,
+    content: Content<'a>,
+    content_type: &'static str,
+    hash: String,
+    compress: bool,
+}
+
+struct Prepared {
+    body: Option<Body>,
+    placed: Placed,
+}
+
+struct Placed {
+    stored: StoredFile,
+    reused: Option<Earlier>,
+}
+
 pub struct Pack {
     header: Vec<u8>,
-    parts: Vec<Part>,
+    bodies: Vec<Body>,
     pub total: u64,
+    pub files: Vec<StoredFile>,
+    pub reuses: bool,
 }
 
 impl Pack {
-    pub fn collect(arguments: &[String], spa: bool, link_key: Option<&LinkKey>) -> Result<Pack> {
-        let sources = sources(arguments)?;
+    pub fn build(
+        sources: &[(String, Source)],
+        spa: bool,
+        link_key: Option<&LinkKey>,
+        known: &Known,
+    ) -> Result<Pack> {
         if link_key.is_some() {
             dotfiles::note_private_well_known(sources.iter().map(|(path, _)| path.as_str()));
         }
@@ -91,7 +391,7 @@ impl Pack {
             .iter()
             .filter_map(|(path, source)| match source {
                 Source::Path(file) => Some((path.clone(), file.clone())),
-                Source::Stdin => None,
+                Source::Bytes(_) => None,
             })
             .collect();
         let copies = sources
@@ -102,50 +402,14 @@ impl Pack {
         if files_to_keep > MAX_FILES {
             bail!("that is {files_to_keep} files; a deploy holds at most {MAX_FILES}");
         }
-        let rule_texts = rule_texts(&sources)?;
-        let mut entries = Vec::with_capacity(sources.len());
-        let mut bodies = Vec::with_capacity(sources.len());
-        let mut copies_left_out = 0;
-        let mut offset = 0;
-        for (path, source) in sources {
-            let unpacked = match (&source, precompressed(&path)) {
-                (Source::Path(file), Some((inner, encoding))) => {
-                    unpack(&path, inner, encoding, file, &originals)?
-                }
-                _ => Unpacked::AsIs,
-            };
-            let (content_type, body, gzip) = match unpacked {
-                Unpacked::CopyOfOriginal => {
-                    copies_left_out += 1;
-                    continue;
-                }
-                Unpacked::Decoded(content_type, decoded) => {
-                    let content_type = fit_charset(content_type, &decoded);
-                    let (body, gzip) = smaller(decoded, true);
-                    (content_type, body, gzip)
-                }
-                Unpacked::AsIs => {
-                    let content_type = content_type(&path, &source)?;
-                    let (body, gzip, content_type) =
-                        prepare(source, compressible(&path), content_type)?;
-                    (content_type, body, gzip)
-                }
-            };
-            let length = body.length();
-            entries.push(Entry {
-                path,
-                offset,
-                length,
-                content_type,
-                gzip,
-            });
-            bodies.push(body);
-            offset += length;
-        }
-        if entries.len() > MAX_FILES {
+        let rule_texts = rule_texts(sources)?;
+        let inspected = parallel_map(sources, |(path, source)| inspect(path, source, &originals))?;
+        let copies_left_out = inspected.iter().filter(|file| file.is_none()).count();
+        let inspected: Vec<Inspected> = inspected.into_iter().flatten().collect();
+        if inspected.len() > MAX_FILES {
             bail!(
                 "that is {} files; a deploy holds at most {MAX_FILES}",
-                entries.len()
+                inspected.len()
             );
         }
         if copies_left_out > 0 {
@@ -153,115 +417,145 @@ impl Pack {
                 "Left out {copies_left_out} precompressed copies of files in the deploy; site compresses those itself"
             ));
         }
+        let compression = match link_key {
+            None => Compression::Brotli,
+            Some(_) => Compression::Gzip,
+        };
+        let mut choices = vec![None; inspected.len()];
+        if link_key.is_none() {
+            choices = choose_reuse(&inspected, known);
+        }
+        let work: Vec<(&Inspected, Option<Earlier>)> = inspected.iter().zip(choices).collect();
+        let spooler = Spooler::default();
+        let prepared = parallel_map(&work, |(file, choice)| {
+            prepare(file, choice.clone(), compression, &spooler)
+        })?;
+        let mut bodies = Vec::with_capacity(prepared.len());
+        let mut placed = Vec::with_capacity(prepared.len());
+        for file in prepared {
+            bodies.extend(file.body);
+            placed.push(file.placed);
+        }
         let mut rules = None;
         if rule_texts.redirects.is_some() || rule_texts.headers.is_some() {
-            let index_without_rules = serde_json::to_vec(&Index {
-                spa,
-                files: &entries,
-                rules: None,
-            })?;
-            let room = MAX_INDEX_BYTES.saturating_sub(index_without_rules.len());
-            rules = site_rules(rule_texts, &entries, room);
+            let room =
+                MAX_INDEX_BYTES.saturating_sub(stored_index_length(spa, &inspected, &placed)?);
+            rules = site_rules(rule_texts, &inspected, room);
         }
-        let rules = rules.as_ref();
-        let (json, parts, data_length) = match link_key {
-            None => {
-                let json = serde_json::to_vec(&Index {
-                    spa,
-                    files: &entries,
-                    rules,
-                })?;
-                let parts = bodies.into_iter().map(Part::Plain).collect();
-                (json, parts, offset)
-            }
-            Some(link_key) => seal(spa, &entries, rules, bodies, link_key)?,
+        let (header, bodies, data_length) = match link_key {
+            None => compact(spa, &inspected, &placed, bodies, &mut rules)?,
+            Some(link_key) => seal(spa, &inspected, &placed, rules.as_ref(), bodies, link_key)?,
         };
-        let mut header = Vec::with_capacity(MAGIC.len() + 4 + json.len());
-        header.extend_from_slice(MAGIC);
-        header.extend_from_slice(&(json.len() as u32).to_be_bytes());
-        header.extend_from_slice(&json);
-        let total = header.len() as u64 + data_length;
-        if total > MAX_DEPLOY_BYTES {
-            bail!(
-                "this deploy is {} and the limit is 100 MB; leave out large files or host them elsewhere",
-                crate::output::size(total)
-            );
+        if let Some(summary) = rules.as_ref().and_then(Rules::summary) {
+            crate::output::note(&summary);
         }
+        let total = header.len() as u64 + data_length;
+        let stored: u64 = placed.iter().map(|file| file.stored.length).sum();
+        let largest = total.max(header.len() as u64 + stored);
+        if largest > MAX_DEPLOY_BYTES {
+            return Err(too_large(largest));
+        }
+        let reuses = placed.iter().any(|file| file.reused.is_some());
+        let files = placed.into_iter().map(|file| file.stored).collect();
         Ok(Pack {
             header,
-            parts,
+            bodies,
             total,
+            files,
+            reuses,
         })
     }
 
-    pub fn into_reader(self) -> PackReader {
-        let mut parts = vec![Part::Plain(Plain::bytes(self.header))];
-        parts.extend(self.parts);
-        parts.reverse();
+    pub fn reader(pack: &Arc<Pack>, progress: Arc<Progress>) -> PackReader {
         PackReader {
-            parts,
+            pack: Arc::clone(pack),
+            part: 0,
+            current: None,
             sent: 0,
-            total: self.total,
-            show_progress: crate::output::stderr_is_terminal() && self.total > 1_000_000,
+            progress,
+            show_progress: crate::output::stderr_is_terminal() && pack.total > 1_000_000,
             last_percent: u64::MAX,
         }
     }
 }
 
-fn seal(
+type Assembled = (Vec<u8>, Vec<Body>, u64);
+
+fn compact(
     spa: bool,
-    entries: &[Entry],
-    rules: Option<&Rules>,
-    bodies: Vec<Plain>,
-    link_key: &LinkKey,
-) -> Result<(Vec<u8>, Vec<Part>, u64)> {
-    let content_salt = crypto::random_salt()?;
-    let sealer = link_key.sealer(&content_salt)?;
-    let sealed_index = serde_json::to_vec(&SealedIndex {
-        spa,
-        files: entries
-            .iter()
-            .map(|entry| SealedEntry {
-                path: &entry.path,
-                content_type: entry.content_type,
-                gzip: entry.gzip,
-                length: entry.length,
-            })
-            .collect(),
-        rules,
-    })?;
-    let mut plains = vec![Plain::bytes(sealed_index)];
-    plains.extend(bodies);
-
-    let mut files = Vec::with_capacity(plains.len());
-    let mut parts = Vec::with_capacity(plains.len());
-    let mut offset = 0;
-    for (entry, plain) in plains.into_iter().enumerate() {
-        let length = crypto::sealed_length(plain.length());
-        files.push(OpaqueEntry { offset, length });
-        let sealing = Sealing::new(plain, entry as u32, sealer.clone());
-        parts.push(Part::Sealed(Box::new(sealing)));
-        offset += length;
+    inspected: &[Inspected],
+    placed: &[Placed],
+    bodies: Vec<Body>,
+    rules: &mut Option<Rules>,
+) -> Result<Assembled> {
+    let mut entries = Vec::with_capacity(placed.len());
+    for (file, placed) in inspected.iter().zip(placed) {
+        let mut content_type = Some(file.content_type);
+        if types::known(file.path) == content_type {
+            content_type = None;
+        }
+        let reuse = placed.reused.as_ref().map(|earlier| ReuseRef {
+            id: earlier.id.clone(),
+            file: earlier.file,
+        });
+        entries.push(CompactEntry {
+            path: file.path.to_string(),
+            length: placed.stored.length,
+            content_type,
+            encoding: stored_encoding(&placed.stored),
+            reuse,
+        });
     }
-
-    let (name, link_salt) = match &link_key.hint {
-        LinkHint::Name(name) => (Some(name.clone()), None),
-        LinkHint::Salt(salt) => (None, Some(salt.clone())),
-    };
-    let json = serde_json::to_vec(&EncryptedIndex {
-        encrypted: Encrypted {
-            name,
-            link_salt,
-            content_salt,
-        },
-        files,
-    })?;
-    Ok((json, parts, offset))
+    let data_length = bodies.iter().map(Body::length).sum();
+    let mut compressed = compact_index(spa, &entries, rules.as_ref())?;
+    while compressed.len() > MAX_COMPRESSED_INDEX_BYTES
+        && let Some(kept) = rules.as_mut()
+    {
+        let rules_length = serde_json::to_vec(kept)?.len();
+        let room = rules_length * MAX_COMPRESSED_INDEX_BYTES / compressed.len() * 9 / 10;
+        kept.fit(room);
+        if kept.is_empty() {
+            *rules = None;
+        }
+        compressed = compact_index(spa, &entries, rules.as_ref())?;
+    }
+    Ok((
+        with_preamble(PUBLIC_MAGIC, &compressed),
+        bodies,
+        data_length,
+    ))
 }
 
-enum Source {
-    Path(PathBuf),
-    Stdin,
+fn compact_index(spa: bool, entries: &[CompactEntry], rules: Option<&Rules>) -> Result<Vec<u8>> {
+    let json = serde_json::to_vec(&CompactIndex {
+        spa,
+        files: entries,
+        rules,
+    })?;
+    Ok(brotli_bytes(&json)?)
+}
+
+fn stored_index_length(spa: bool, inspected: &[Inspected], placed: &[Placed]) -> Result<usize> {
+    let mut files = Vec::with_capacity(placed.len());
+    let mut offset = 0;
+    for (file, placed) in inspected.iter().zip(placed) {
+        let encoding = stored_encoding(&placed.stored);
+        let mut origin = None;
+        if placed.reused.is_some() {
+            origin = Some(LONGEST_ORIGIN);
+        }
+        files.push(StoredEntry {
+            path: file.path,
+            offset,
+            length: placed.stored.length,
+            content_type: file.content_type,
+            gzip: encoding == Some(GZIP),
+            br: encoding == Some(BROTLI),
+            origin,
+        });
+        offset += placed.stored.length;
+    }
+    Ok(serde_json::to_vec(&StoredIndex { spa, files })?.len())
 }
 
 struct RuleTexts {
@@ -276,17 +570,14 @@ fn rule_texts(sources: &[(String, Source)]) -> Result<RuleTexts> {
     })
 }
 
-fn site_rules(texts: RuleTexts, entries: &[Entry], room: usize) -> Option<Rules> {
-    let paths: HashSet<&str> = entries
+fn site_rules(texts: RuleTexts, inspected: &[Inspected], room: usize) -> Option<Rules> {
+    let paths: HashSet<&str> = inspected
         .iter()
-        .map(|entry| entry.path.as_str())
+        .map(|file| file.path)
         .filter(|path| *path != rules::REDIRECTS_FILE && *path != rules::HEADERS_FILE)
         .collect();
     let mut parsed = rules::parse(texts.redirects.as_deref(), texts.headers.as_deref(), &paths);
     parsed.fit(room);
-    if let Some(summary) = parsed.summary() {
-        crate::output::note(&summary);
-    }
     if parsed.is_empty() {
         return None;
     }
@@ -309,7 +600,443 @@ fn rule_file(sources: &[(String, Source)], name: &str) -> Result<Option<String>>
     }
 }
 
-fn sources(arguments: &[String]) -> Result<Vec<(String, Source)>> {
+fn seal(
+    spa: bool,
+    inspected: &[Inspected],
+    placed: &[Placed],
+    rules: Option<&Rules>,
+    files: Vec<Body>,
+    link_key: &LinkKey,
+) -> Result<Assembled> {
+    let content_salt = crypto::random_salt()?;
+    let sealer = link_key.sealer(&content_salt)?;
+    let sealed_index = serde_json::to_vec(&SealedIndex {
+        spa,
+        files: inspected
+            .iter()
+            .zip(placed)
+            .map(|(file, placed)| SealedEntry {
+                path: file.path,
+                content_type: file.content_type,
+                gzip: stored_encoding(&placed.stored) == Some(GZIP),
+                length: placed.stored.length,
+            })
+            .collect(),
+        rules,
+    })?;
+    if files.len() != placed.len() {
+        bail!("a private deploy cannot reuse files from earlier deploys");
+    }
+    let mut plain = vec![Body::Bytes(sealed_index)];
+    plain.extend(files);
+    let mut entries = Vec::with_capacity(plain.len());
+    let mut offset = 0;
+    for body in &plain {
+        let length = crypto::sealed_length(body.length());
+        entries.push(OpaqueEntry { offset, length });
+        offset += length;
+    }
+
+    let (name, link_salt) = match &link_key.hint {
+        LinkHint::Name(name) => (Some(name.clone()), None),
+        LinkHint::Salt(salt) => (None, Some(salt.clone())),
+    };
+    let json = serde_json::to_vec(&EncryptedIndex {
+        encrypted: Encrypted {
+            name,
+            link_salt,
+            content_salt,
+        },
+        files: entries,
+    })?;
+    let header = with_preamble(ENCRYPTED_MAGIC, &json);
+    let request_size = header.len() as u64 + offset;
+    if request_size > MAX_DEPLOY_BYTES {
+        return Err(too_large(request_size));
+    }
+
+    let spooler = Spooler::default();
+    let mut bodies = Vec::with_capacity(plain.len());
+    for (entry, body) in plain.iter().enumerate() {
+        bodies.push(seal_body(entry as u32, body, &sealer, &spooler)?);
+    }
+    Ok((header, bodies, offset))
+}
+
+fn seal_body(entry: u32, body: &Body, sealer: &Sealer, spooler: &Spooler) -> Result<Body> {
+    let plain_length = body.length();
+    let changed = || match body.stored_at() {
+        Some((path, _)) => {
+            anyhow::anyhow!("{} changed while deploying; deploy again", path.display())
+        }
+        None => anyhow::anyhow!("a file changed while deploying; deploy again"),
+    };
+    let mut sealing = Sealing {
+        plain: body.open().map_err(|_| changed())?,
+        plain_length,
+        entry,
+        next_chunk: 0,
+        chunks: crypto::chunk_count(plain_length),
+        sealer: sealer.clone(),
+        sealed: std::io::Cursor::new(Vec::new()),
+    };
+    let sealed = match spool(&mut sealing, spooler) {
+        Ok(sealed) => sealed,
+        Err(Spooling::ReadFailed) => return Err(changed()),
+        Err(Spooling::NoRoom) => return Err(no_room()),
+    };
+    if sealed.length() != crypto::sealed_length(plain_length) {
+        return Err(changed());
+    }
+    Ok(sealed)
+}
+
+fn with_preamble(magic: &[u8], index: &[u8]) -> Vec<u8> {
+    let mut header = Vec::with_capacity(magic.len() + 4 + index.len());
+    header.extend_from_slice(magic);
+    header.extend_from_slice(&(index.len() as u32).to_be_bytes());
+    header.extend_from_slice(index);
+    header
+}
+
+fn stored_encoding(stored: &StoredFile) -> Option<&'static str> {
+    match stored.encoding.as_deref() {
+        Some(BROTLI) => Some(BROTLI),
+        Some(GZIP) => Some(GZIP),
+        _ => None,
+    }
+}
+
+fn choose_reuse(inspected: &[Inspected], known: &Known) -> Vec<Option<Earlier>> {
+    let mut choices: Vec<Option<Earlier>> = Vec::with_capacity(inspected.len());
+    for file in inspected {
+        let candidates = known.get(&file.hash).map(Vec::as_slice).unwrap_or_default();
+        let previous = choices.last().and_then(Option::as_ref);
+        let continuing = previous.and_then(|last| {
+            candidates
+                .iter()
+                .find(|candidate| candidate.id == last.id && candidate.file == last.file + 1)
+        });
+        let chosen = continuing.or(candidates.first()).cloned();
+        choices.push(chosen);
+    }
+    limit_sources(&mut choices);
+    limit_runs(&mut choices);
+    let reused: u64 = choices.iter().flatten().map(|earlier| earlier.length).sum();
+    if reused < LEAST_WORTH_REUSING {
+        choices.iter_mut().for_each(|choice| *choice = None);
+    }
+    choices
+}
+
+fn limit_sources(choices: &mut [Option<Earlier>]) {
+    let mut saved_by_source: Vec<(String, u64)> = Vec::new();
+    for earlier in choices.iter().flatten() {
+        match saved_by_source.iter_mut().find(|(id, _)| *id == earlier.id) {
+            Some((_, saved)) => *saved += earlier.length,
+            None => saved_by_source.push((earlier.id.clone(), earlier.length)),
+        }
+    }
+    if saved_by_source.len() <= MAX_REUSED_DEPLOYS {
+        return;
+    }
+    saved_by_source.sort_by_key(|(_, saved)| std::cmp::Reverse(*saved));
+    let kept: Vec<String> = saved_by_source
+        .into_iter()
+        .take(MAX_REUSED_DEPLOYS)
+        .map(|(id, _)| id)
+        .collect();
+    for choice in choices.iter_mut() {
+        let dropped = choice
+            .as_ref()
+            .is_some_and(|earlier| !kept.contains(&earlier.id));
+        if dropped {
+            *choice = None;
+        }
+    }
+}
+
+fn limit_runs(choices: &mut [Option<Earlier>]) {
+    let mut runs: Vec<(usize, usize, u64)> = Vec::new();
+    for position in 0..choices.len() {
+        let Some(earlier) = &choices[position] else {
+            continue;
+        };
+        let continues = position > 0
+            && choices[position - 1]
+                .as_ref()
+                .is_some_and(|last| last.id == earlier.id && last.file + 1 == earlier.file);
+        match runs.last_mut() {
+            Some(run) if continues => {
+                run.1 = position;
+                run.2 += earlier.length;
+            }
+            _ => runs.push((position, position, earlier.length)),
+        }
+    }
+    if runs.len() <= MAX_REUSED_RUNS {
+        return;
+    }
+    runs.sort_by_key(|run| run.2);
+    let dropped = runs.len() - MAX_REUSED_RUNS;
+    for (start, end, _) in runs.into_iter().take(dropped) {
+        for choice in &mut choices[start..=end] {
+            *choice = None;
+        }
+    }
+}
+
+fn inspect<'a>(
+    path: &'a str,
+    source: &'a Source,
+    originals: &HashMap<String, PathBuf>,
+) -> Result<Option<Inspected<'a>>> {
+    let file = match source {
+        Source::Bytes(bytes) => {
+            let head = &bytes[..bytes.len().min(types::SNIFF_BYTES as usize)];
+            let content_type = fit_charset(content_type(path, head), bytes);
+            return Ok(Some(Inspected {
+                path,
+                content: Content::Bytes(bytes),
+                content_type,
+                hash: content_hash(bytes),
+                compress: compressible(path),
+            }));
+        }
+        Source::Path(file) => file,
+    };
+    if let Some((inner, encoding)) = precompressed(path) {
+        match unpack(path, inner, encoding, file, originals)? {
+            Unpacked::CopyOfOriginal => return Ok(None),
+            Unpacked::Decoded(content_type, decoded) => {
+                return Ok(Some(Inspected {
+                    path,
+                    content: Content::Decoded(file, encoding),
+                    content_type: fit_charset(content_type, &decoded),
+                    hash: content_hash(&decoded),
+                    compress: true,
+                }));
+            }
+            Unpacked::AsIs => {}
+        }
+    }
+    let unreadable = || format!("could not read {}", file.display());
+    let mut head = Vec::new();
+    File::open(file)
+        .with_context(unreadable)?
+        .take(types::SNIFF_BYTES)
+        .read_to_end(&mut head)
+        .with_context(unreadable)?;
+    let mut reader = Hashing::new(File::open(file).with_context(unreadable)?);
+    let content_type =
+        fit_charset_streamed(content_type(path, &head), &mut reader).with_context(unreadable)?;
+    let hash = reader.finish().with_context(unreadable)?;
+    Ok(Some(Inspected {
+        path,
+        content: Content::File(file),
+        content_type,
+        hash,
+        compress: compressible(path),
+    }))
+}
+
+struct Hashing<R: Read> {
+    inner: R,
+    context: ring::digest::Context,
+}
+
+impl<R: Read> Hashing<R> {
+    fn new(inner: R) -> Hashing<R> {
+        Hashing {
+            inner,
+            context: ring::digest::Context::new(&ring::digest::SHA256),
+        }
+    }
+
+    fn finish(mut self) -> std::io::Result<String> {
+        std::io::copy(&mut self, &mut std::io::sink())?;
+        Ok(self.digest())
+    }
+
+    fn digest(self) -> String {
+        hash_hex(&self.context.finish().as_ref()[..16])
+    }
+}
+
+impl<R: Read> Read for Hashing<R> {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        let count = self.inner.read(buffer)?;
+        self.context.update(&buffer[..count]);
+        Ok(count)
+    }
+}
+
+fn snapshot(path: &Path, spooler: &Spooler) -> Result<(Body, String)> {
+    let unreadable = || format!("could not read {}", path.display());
+    let mut reader = Hashing::new(File::open(path).with_context(unreadable)?);
+    let body = match spool(&mut reader, spooler) {
+        Ok(body) => body,
+        Err(Spooling::ReadFailed) => bail!(unreadable()),
+        Err(Spooling::NoRoom) => return Err(no_room()),
+    };
+    Ok((body, reader.digest()))
+}
+
+fn prepare(
+    file: &Inspected,
+    choice: Option<Earlier>,
+    compression: Compression,
+    spooler: &Spooler,
+) -> Result<Prepared> {
+    if let Some(earlier) = choice {
+        return Ok(Prepared {
+            body: None,
+            placed: Placed {
+                stored: StoredFile {
+                    hash: file.hash.clone(),
+                    length: earlier.length,
+                    encoding: earlier.encoding.clone(),
+                },
+                reused: Some(earlier),
+            },
+        });
+    }
+    let bytes = match &file.content {
+        Content::File(path) if !file.compress => {
+            let (body, hash) = match compression {
+                Compression::Brotli => snapshot(path, spooler)?,
+                Compression::Gzip => {
+                    let length = std::fs::metadata(path)
+                        .with_context(|| format!("could not read {}", path.display()))?
+                        .len();
+                    let body = Body::File {
+                        path: path.to_path_buf(),
+                        length,
+                    };
+                    (body, file.hash.clone())
+                }
+            };
+            return Ok(Prepared {
+                placed: Placed {
+                    stored: StoredFile {
+                        hash,
+                        length: body.length(),
+                        encoding: None,
+                    },
+                    reused: None,
+                },
+                body: Some(body),
+            });
+        }
+        Content::File(path) => {
+            std::fs::read(path).with_context(|| format!("could not read {}", path.display()))?
+        }
+        Content::Bytes(bytes) => bytes.to_vec(),
+        Content::Decoded(path, encoding) => decode_within_limit(file.path, path, *encoding)?
+            .with_context(|| format!("{} changed while deploying; deploy again", file.path))?,
+    };
+    let hash = content_hash(&bytes);
+    let (body, encoding) = smaller(bytes, file.compress.then_some(compression));
+    Ok(Prepared {
+        placed: Placed {
+            stored: StoredFile {
+                hash,
+                length: body.length(),
+                encoding: encoding.map(str::to_string),
+            },
+            reused: None,
+        },
+        body: Some(body),
+    })
+}
+
+#[derive(Clone, Copy)]
+enum Compression {
+    Brotli,
+    Gzip,
+}
+
+fn smaller(bytes: Vec<u8>, compress: Option<Compression>) -> (Body, Option<&'static str>) {
+    let compressed = match compress {
+        None => None,
+        Some(Compression::Brotli) => brotli_bytes(&bytes).ok().map(|out| (out, BROTLI)),
+        Some(Compression::Gzip) => gzip_bytes(&bytes).ok().map(|out| (out, GZIP)),
+    };
+    if let Some((compressed, encoding)) = compressed
+        && compressed.len() < bytes.len()
+    {
+        return (Body::Bytes(compressed), Some(encoding));
+    }
+    (Body::Bytes(bytes), None)
+}
+
+fn gzip_bytes(bytes: &[u8]) -> std::io::Result<Vec<u8>> {
+    let mut encoder = GzEncoder::new(Vec::new(), flate2::Compression::default());
+    encoder.write_all(bytes)?;
+    encoder.finish()
+}
+
+const LARGEST_BEST_BROTLI_BYTES: usize = 1024 * 1024;
+const LARGE_BROTLI_QUALITY: u8 = 5;
+const LARGE_BROTLI_WINDOW_BITS: u8 = 18;
+
+fn brotli_bytes(bytes: &[u8]) -> std::io::Result<Vec<u8>> {
+    let (quality, window) = if bytes.len() <= LARGEST_BEST_BROTLI_BYTES {
+        (brotlic::Quality::best(), brotlic::WindowSize::default())
+    } else {
+        let quality = brotlic::Quality::new(LARGE_BROTLI_QUALITY).map_err(std::io::Error::other)?;
+        let window =
+            brotlic::WindowSize::new(LARGE_BROTLI_WINDOW_BITS).map_err(std::io::Error::other)?;
+        (quality, window)
+    };
+    let bound = brotlic::compress_bound(bytes.len(), quality).unwrap_or(bytes.len() + 1024);
+    let mut compressed = vec![0; bound];
+    let written = brotlic::compress(
+        bytes,
+        &mut compressed,
+        quality,
+        window,
+        brotlic::CompressionMode::Generic,
+    )
+    .map_err(std::io::Error::other)?;
+    compressed.truncate(written);
+    Ok(compressed)
+}
+
+fn parallel_map<'a, Item, Output, Work>(items: &'a [Item], work: Work) -> Result<Vec<Output>>
+where
+    Item: Sync,
+    Output: Send,
+    Work: Fn(&'a Item) -> Result<Output> + Sync,
+{
+    let workers = std::thread::available_parallelism()
+        .map(|count| count.get())
+        .unwrap_or(1);
+    let queue = std::sync::Mutex::new(items.iter().enumerate());
+    let results = std::sync::Mutex::new(Vec::with_capacity(items.len()));
+    std::thread::scope(|scope| {
+        for _ in 0..workers {
+            scope.spawn(|| {
+                loop {
+                    let next = queue.lock().expect("queue lock").next();
+                    let Some((position, item)) = next else {
+                        break;
+                    };
+                    let output = work(item);
+                    results
+                        .lock()
+                        .expect("results lock")
+                        .push((position, output));
+                }
+            });
+        }
+    });
+    let mut results = results.into_inner().expect("results lock");
+    results.sort_by_key(|(position, _)| *position);
+    results.into_iter().map(|(_, output)| output).collect()
+}
+
+pub fn sources(arguments: &[String]) -> Result<Vec<(String, Source)>> {
     if arguments.is_empty() {
         bail!("give a folder or files to deploy, like: site dist");
     }
@@ -320,7 +1047,9 @@ fn sources(arguments: &[String]) -> Result<Vec<(String, Source)>> {
         if std::io::stdin().is_terminal() {
             bail!("pipe a page into site -, like: cat page.html | site -");
         }
-        return Ok(vec![("index.html".to_string(), Source::Stdin)]);
+        let mut bytes = Vec::new();
+        std::io::stdin().read_to_end(&mut bytes)?;
+        return Ok(vec![("index.html".to_string(), Source::Bytes(bytes))]);
     }
 
     if arguments.len() == 1 {
@@ -415,53 +1144,6 @@ fn walk(
     Ok(())
 }
 
-fn prepare(
-    source: Source,
-    compress: bool,
-    content_type: &'static str,
-) -> Result<(Plain, bool, &'static str)> {
-    let path = match source {
-        Source::Stdin => {
-            let mut bytes = Vec::new();
-            std::io::stdin().read_to_end(&mut bytes)?;
-            let content_type = fit_charset(content_type, &bytes);
-            let (body, gzip) = smaller(bytes, compress);
-            return Ok((body, gzip, content_type));
-        }
-        Source::Path(path) => path,
-    };
-    if compress {
-        let bytes =
-            std::fs::read(&path).with_context(|| format!("could not read {}", path.display()))?;
-        let content_type = fit_charset(content_type, &bytes);
-        let (body, gzip) = smaller(bytes, compress);
-        return Ok((body, gzip, content_type));
-    }
-    let file = File::open(&path).with_context(|| format!("could not read {}", path.display()))?;
-    let content_type = fit_charset_streamed(content_type, file)
-        .with_context(|| format!("could not read {}", path.display()))?;
-    let length = std::fs::metadata(&path)?.len();
-    let file = Plain::File {
-        path,
-        length,
-        open: None,
-    };
-    Ok((file, false, content_type))
-}
-
-fn smaller(bytes: Vec<u8>, compress: bool) -> (Plain, bool) {
-    if compress {
-        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
-        let compressed = encoder.write_all(&bytes).and_then(|()| encoder.finish());
-        if let Ok(compressed) = compressed
-            && compressed.len() < bytes.len()
-        {
-            return (Plain::bytes(compressed), true);
-        }
-    }
-    (Plain::bytes(bytes), false)
-}
-
 #[derive(Clone, Copy)]
 enum Encoding {
     Gzip,
@@ -477,7 +1159,7 @@ enum Unpacked {
 
 enum Decoder {
     Gzip(GzDecoder<BufReader<File>>),
-    Brotli(Box<brotli_decompressor::Decompressor<BufReader<File>>>),
+    Brotli(Box<brotlic::DecompressorReader<BufReader<File>>>),
 }
 
 impl Decoder {
@@ -493,20 +1175,14 @@ impl Decoder {
         if use_gzip {
             return Ok(Decoder::Gzip(GzDecoder::new(input)));
         }
-        let decompressor = brotli_decompressor::Decompressor::new(input, 4096);
+        let decompressor = brotlic::DecompressorReader::new(input);
         Ok(Decoder::Brotli(Box::new(decompressor)))
     }
 
     fn input_finished(&mut self) -> std::io::Result<bool> {
         match self {
             Decoder::Gzip(decoder) => Ok(decoder.get_mut().fill_buf()?.is_empty()),
-            Decoder::Brotli(decoder) => {
-                let mut probe = [0u8; 1];
-                if decoder.read(&mut probe)? > 0 {
-                    return Ok(false);
-                }
-                Ok(decoder.get_mut().fill_buf()?.is_empty())
-            }
+            Decoder::Brotli(decoder) => Ok(decoder.get_mut().fill_buf()?.is_empty()),
         }
     }
 }
@@ -673,54 +1349,54 @@ fn compressible(path: &str) -> bool {
     )
 }
 
-fn content_type(path: &str, source: &Source) -> Result<&'static str> {
+fn content_type(path: &str, head: &[u8]) -> &'static str {
     if let Some(content_type) = types::known(path) {
-        return Ok(content_type);
+        return content_type;
     }
     if let Some(content_type) = dotfiles::well_known_type(path) {
-        return Ok(content_type);
+        return content_type;
     }
-    let mut head = Vec::new();
-    if let Source::Path(file) = source {
-        File::open(file)
-            .with_context(|| format!("could not read {}", file.display()))?
-            .take(types::SNIFF_BYTES)
-            .read_to_end(&mut head)?;
-    }
-    Ok(types::sniffed(&head))
+    types::sniffed(head)
 }
 
-enum Plain {
-    Bytes(std::io::Cursor<Vec<u8>>),
-    File {
-        path: PathBuf,
-        length: u64,
-        open: Option<std::io::Take<File>>,
-    },
+enum PartReader {
+    Header,
+    Body(BodyReader),
 }
 
-impl Plain {
-    fn bytes(bytes: Vec<u8>) -> Plain {
-        Plain::Bytes(std::io::Cursor::new(bytes))
-    }
-
-    fn length(&self) -> u64 {
-        match self {
-            Plain::Bytes(cursor) => cursor.get_ref().len() as u64,
-            Plain::File { length, .. } => *length,
-        }
-    }
+struct BodyReader {
+    pack: Arc<Pack>,
+    number: usize,
+    position: usize,
+    open: Option<std::io::Take<File>>,
 }
 
-impl Read for Plain {
+impl Read for BodyReader {
     fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
-        match self {
-            Plain::Bytes(cursor) => cursor.read(buffer),
-            Plain::File { path, length, open } => {
-                if open.is_none() {
-                    *open = Some(File::open(&*path)?.take(*length));
+        let body = &self.pack.bodies[self.number];
+        if let Body::Bytes(bytes) = body {
+            let rest = &bytes[self.position..];
+            let count = rest.len().min(buffer.len());
+            buffer[..count].copy_from_slice(&rest[..count]);
+            self.position += count;
+            return Ok(count);
+        }
+        if let Body::Spooled(spool) = body {
+            let mut reader = SpoolReader {
+                spool,
+                position: self.position as u64,
+            };
+            let count = reader.read(buffer)?;
+            self.position += count;
+            return Ok(count);
+        }
+        match body.stored_at() {
+            None => Ok(0),
+            Some((path, length)) => {
+                if self.open.is_none() {
+                    self.open = Some(File::open(path)?.take(length));
                 }
-                let reader = open.as_mut().expect("file was just opened");
+                let reader = self.open.as_mut().expect("file was just opened");
                 let count = reader.read(buffer)?;
                 if count == 0 && reader.limit() > 0 {
                     return Err(std::io::Error::other(format!(
@@ -734,7 +1410,7 @@ impl Read for Plain {
     }
 }
 
-struct Sealing {
+struct Sealing<Plain: Read> {
     plain: Plain,
     plain_length: u64,
     entry: u32,
@@ -744,22 +1420,7 @@ struct Sealing {
     sealed: std::io::Cursor<Vec<u8>>,
 }
 
-impl Sealing {
-    fn new(plain: Plain, entry: u32, sealer: Sealer) -> Sealing {
-        let plain_length = plain.length();
-        Sealing {
-            plain,
-            plain_length,
-            entry,
-            next_chunk: 0,
-            chunks: crypto::chunk_count(plain_length),
-            sealer,
-            sealed: std::io::Cursor::new(Vec::new()),
-        }
-    }
-}
-
-impl Read for Sealing {
+impl<Plain: Read> Read for Sealing<Plain> {
     fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
         loop {
             let count = self.sealed.read(buffer)?;
@@ -780,15 +1441,12 @@ impl Read for Sealing {
     }
 }
 
-enum Part {
-    Plain(Plain),
-    Sealed(Box<Sealing>),
-}
-
 pub struct PackReader {
-    parts: Vec<Part>,
+    pack: Arc<Pack>,
+    part: usize,
+    current: Option<(PartReader, usize)>,
     sent: u64,
-    total: u64,
+    progress: Arc<Progress>,
     show_progress: bool,
     last_percent: u64,
 }
@@ -798,28 +1456,57 @@ impl PackReader {
         if !self.show_progress {
             return;
         }
-        let percent = self.sent * 100 / self.total.max(1);
+        let total = self.pack.total;
+        let percent = self.sent * 100 / total.max(1);
         if percent != self.last_percent {
             self.last_percent = percent;
-            crate::output::progress(self.sent, self.total);
+            crate::output::progress(self.sent, total);
         }
+    }
+
+    fn open_part(&self) -> Option<PartReader> {
+        if self.part == 0 {
+            return Some(PartReader::Header);
+        }
+        let number = self.part - 1;
+        self.pack.bodies.get(number)?;
+        Some(PartReader::Body(BodyReader {
+            pack: Arc::clone(&self.pack),
+            number,
+            position: 0,
+            open: None,
+        }))
     }
 }
 
 impl Read for PackReader {
     fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
-        while let Some(part) = self.parts.last_mut() {
+        loop {
+            if self.current.is_none() {
+                let Some(part) = self.open_part() else {
+                    return Ok(0);
+                };
+                self.current = Some((part, 0));
+            }
+            let (part, header_position) = self.current.as_mut().expect("a part is open");
             let count = match part {
-                Part::Plain(plain) => plain.read(buffer)?,
-                Part::Sealed(sealing) => sealing.read(buffer)?,
+                PartReader::Header => {
+                    let rest = &self.pack.header[*header_position..];
+                    let count = rest.len().min(buffer.len());
+                    buffer[..count].copy_from_slice(&rest[..count]);
+                    *header_position += count;
+                    count
+                }
+                PartReader::Body(body) => body.read(buffer)?,
             };
             if count > 0 {
                 self.sent += count as u64;
+                self.progress.advance(count as u64);
                 self.report();
                 return Ok(count);
             }
-            self.parts.pop();
+            self.current = None;
+            self.part += 1;
         }
-        Ok(0)
     }
 }

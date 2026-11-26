@@ -253,7 +253,7 @@ Add `-H 'Accept: application/json'` to a deploy for JSON. A deploy without a key
 <details>
 <summary><strong>How it works</strong></summary>
 
-The CLI packs every file into one upload: a small index of paths, types and offsets, then the bytes. One Cloudflare Worker streams that upload straight into a single R2 object. Serving a file is a lookup in the cached index and a ranged read of that object, so there's nothing to build, copy or propagate.
+The CLI packs every file into one upload: a small compressed index of paths and sizes, then the brotli-compressed bytes. A redeploy sends only the files that changed; the Worker copies the rest from your earlier deploy. A private site goes up whole every time, gzipped and then encrypted on your machine, since its ciphertext changes with every deploy. One Cloudflare Worker streams that upload straight into a single self-contained R2 object. Serving a file is a lookup in the cached index and a ranged read of that object, so there's nothing to build or propagate.
 
 </details>
 

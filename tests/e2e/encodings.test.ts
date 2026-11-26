@@ -315,3 +315,27 @@ test("large extensionless files are judged without being read whole and keep the
   assert.equal(text.headers["content-type"], "text/plain; charset=utf-8");
   assert.deepEqual(text.body, notes);
 });
+
+function largeBundle(size: number): Buffer {
+  const lines: string[] = [];
+  let length = 0;
+  for (let number = 0; length < size; number++) {
+    const line = `export function handler${number}(value) { return { id: ${number}, label: "item-${(number * 7919) % 100_003}", total: value * ${number % 97} }; }\n`;
+    lines.push(line);
+    length += line.length;
+  }
+  return Buffer.from(lines.join("").slice(0, size));
+}
+
+test("a large compressible file deploys quickly with little memory and serves the same bytes", async () => {
+  const bundle = largeBundle(30 * megabyte);
+  const run = await runMeasured(["--no-copy", folder({ "index.html": "<h1>App</h1>", "app.js": bundle })]);
+  assert.equal(run.code, 0, run.stderr);
+  assert.ok(run.peakBytes < 64 * megabyte, `peak memory was ${run.peakBytes} bytes`);
+  const url = run.stdout.trim();
+  for (const encoding of ["br", "gzip", "identity"]) {
+    const reply = await visit(url, "/app.js", { headers: { "accept-encoding": encoding } });
+    assert.equal(reply.status, 200, encoding);
+    assert.ok(reply.body.equals(bundle), encoding);
+  }
+});

@@ -7,12 +7,20 @@ import type { PackFile } from "./pack";
 import { fileListPage, privateSitePage } from "./pages";
 import { decodePath, isReserved, parseRange, redirectLocation } from "./resolve";
 import { applyHeaderRules, isConfigFile, route } from "./rules";
-import { deployKey, EDGE_SECONDS, loadDeploy, readPointer, type Deploy } from "./storage";
+import { deployKey, EDGE_SECONDS, EXPIRES_HEADER, expiryOf, loadDeploy, readPointer, type Deploy } from "./storage";
 
 const ENTRY_PATH = /^\/__site\/entries\/(0|[1-9]\d*)$/;
 
 const IMMUTABLE = "public, max-age=31536000, immutable, no-transform";
 const REVALIDATE = "no-cache, no-transform";
+const SMALL_FILE_BYTES = 65_536;
+const FILE_MEMORY_BYTES = 16_000_000;
+const NEIGHBORHOOD_BYTES = 1_048_576;
+const NEIGHBORS_PER_READ = 32;
+const FILE_MEMORY_ENTRY_BYTES = 1024;
+
+const fileMemory = new Map<string, { bytes: Uint8Array; expiresAt: number }>();
+let fileMemoryBytes = 0;
 
 export async function serveSite(request: Request, env: Env, ctx: ExecutionContext, label: string): Promise<Response> {
   if (request.method !== "GET" && request.method !== "HEAD") {
@@ -85,13 +93,16 @@ function script(source: string, extraHeaders: Record<string, string>): Response 
 
 async function serveFile(request: Request, env: Env, ctx: ExecutionContext, deploy: Deploy, number: number, status: 200 | 404, named: boolean): Promise<Response> {
   const file = deploy.index.files[number];
-  const etag = `"${deploy.id}-${number}"`;
-  const headers = contentHeaders(file.type, etag, status, named);
   let clientEncodings = request.headers.get("accept-encoding") ?? "";
   if (typeof request.cf?.clientAcceptEncoding === "string") clientEncodings = request.cf.clientAcceptEncoding;
-  const acceptsGzip = /\bgzip\b/.test(clientEncodings);
+  const encoding = storedEncoding(file);
+  const clientAccepts = encoding !== null && acceptsEncoding(clientEncodings, encoding);
+  let representation = file.origin ?? `${deploy.id}-${number}`;
+  if (encoding !== null && !clientAccepts) representation = `${representation}-identity`;
+  const etag = `"${representation}"`;
+  const headers = contentHeaders(file.type, etag, status, named);
 
-  if (file.gzip) {
+  if (encoding !== null) {
     headers.set("Vary", "Accept-Encoding");
   } else {
     headers.set("Accept-Ranges", "bytes");
@@ -101,7 +112,7 @@ async function serveFile(request: Request, env: Env, ctx: ExecutionContext, depl
   const rangeHeader = request.headers.get("range");
   const ifRange = request.headers.get("if-range");
   const rangeStillValid = ifRange === null || ifRange === etag;
-  if (!file.gzip && status === 200 && rangeHeader !== null && rangeStillValid) {
+  if (encoding === null && status === 200 && rangeHeader !== null && rangeStillValid) {
     const range = parseRange(rangeHeader, file.length);
     if (range === null) {
       headers.set("Content-Range", `bytes */${file.length}`);
@@ -115,29 +126,87 @@ async function serveFile(request: Request, env: Env, ctx: ExecutionContext, depl
     return new Response(object.body, { status: 206, headers });
   }
 
-  const sendGzipped = file.gzip && acceptsGzip;
-  if (sendGzipped) headers.set("Content-Encoding", "gzip");
-  if (!file.gzip || sendGzipped) headers.set("Content-Length", String(file.length));
+  if (encoding !== null && clientAccepts) headers.set("Content-Encoding", encoding);
+  if (encoding === null || clientAccepts) headers.set("Content-Length", String(file.length));
   if (request.method === "HEAD") return new Response(null, { status, headers, encodeBody: "manual" });
 
   const stored = await storedBytes(env, ctx, deploy, file, number);
   if (!stored) return noSite();
-  if (file.gzip && !acceptsGzip) return new Response(stored.pipeThrough(new DecompressionStream("gzip")), { status, headers });
+  if (encoding !== null && !clientAccepts) return new Response(stored.pipeThrough(new DecompressionStream(decompressionFormat(encoding))), { status, headers });
   return new Response(stored, { status, headers, encodeBody: "manual" });
 }
 
 async function storedBytes(env: Env, ctx: ExecutionContext, deploy: Deploy, file: PackFile, number: number): Promise<ReadableStream | null> {
   if (file.length === 0) return new Blob([]).stream();
+  const small = file.length <= SMALL_FILE_BYTES;
+  const memoryKey = `${deploy.id}/${number}`;
+  const remembered = fileMemory.get(memoryKey);
+  if (remembered && Date.now() < remembered.expiresAt) return new Blob([remembered.bytes]).stream();
   const cacheKey = new Request(`https://${env.SITE_DOMAIN}/__file/${deploy.id}/${number}`);
   const cached = await caches.default.match(cacheKey);
+  if (cached?.body && small) {
+    const expiresAt = expiryOf(cached);
+    const bytes = new Uint8Array(await cached.arrayBuffer());
+    rememberFile(memoryKey, bytes, expiresAt);
+    return new Blob([bytes]).stream();
+  }
   if (cached?.body) return cached.body;
 
+  if (small) {
+    const bytes = await readNeighborhood(env, ctx, deploy, number);
+    if (!bytes) return null;
+    return new Blob([bytes]).stream();
+  }
   const object = await env.SITES.get(deployKey(deploy.id), { range: { offset: deploy.dataStart + file.offset, length: file.length } });
   if (!object) return null;
   const [forClient, forCache] = object.body.tee();
   const entry = new Response(forCache, { headers: { "Cache-Control": `public, max-age=${EDGE_SECONDS}`, "Content-Length": String(file.length) } });
   ctx.waitUntil(caches.default.put(cacheKey, entry));
   return forClient;
+}
+
+async function readNeighborhood(env: Env, ctx: ExecutionContext, deploy: Deploy, number: number): Promise<Uint8Array | null> {
+  const files = deploy.index.files;
+  const start = files[number].offset;
+  const neighbors: number[] = [];
+  for (let next = number; next < files.length && neighbors.length < NEIGHBORS_PER_READ; next += 1) {
+    const candidate = files[next];
+    if (candidate.offset + candidate.length - start > NEIGHBORHOOD_BYTES) break;
+    if (candidate.length > 0 && candidate.length <= SMALL_FILE_BYTES) neighbors.push(next);
+  }
+  const last = files[neighbors[neighbors.length - 1]];
+  const object = await env.SITES.get(deployKey(deploy.id), { range: { offset: deploy.dataStart + start, length: last.offset + last.length - start } });
+  if (!object) return null;
+  const window = new Uint8Array(await object.arrayBuffer());
+  const expiresAt = Date.now() + EDGE_SECONDS * 1000;
+  const puts: Promise<void>[] = [];
+  for (const neighbor of neighbors) {
+    const file = files[neighbor];
+    const bytes = window.slice(file.offset - start, file.offset - start + file.length);
+    rememberFile(`${deploy.id}/${neighbor}`, bytes, expiresAt);
+    const cacheKey = new Request(`https://${env.SITE_DOMAIN}/__file/${deploy.id}/${neighbor}`);
+    const headers = { "Cache-Control": `public, max-age=${EDGE_SECONDS}`, [EXPIRES_HEADER]: String(expiresAt) };
+    puts.push(caches.default.put(cacheKey, new Response(bytes, { headers })));
+  }
+  ctx.waitUntil(Promise.all(puts));
+  return window.slice(0, files[number].length);
+}
+
+function rememberFile(key: string, bytes: Uint8Array, expiresAt: number): void {
+  const previous = fileMemory.get(key);
+  if (previous) fileMemoryBytes -= memoryCharge(previous.bytes);
+  fileMemory.delete(key);
+  fileMemory.set(key, { bytes, expiresAt });
+  fileMemoryBytes += memoryCharge(bytes);
+  while (fileMemoryBytes > FILE_MEMORY_BYTES) {
+    const [oldestKey, oldest] = fileMemory.entries().next().value as [string, { bytes: Uint8Array }];
+    fileMemory.delete(oldestKey);
+    fileMemoryBytes -= memoryCharge(oldest.bytes);
+  }
+}
+
+function memoryCharge(bytes: Uint8Array): number {
+  return bytes.byteLength + FILE_MEMORY_ENTRY_BYTES;
 }
 
 function listing(request: Request, deploy: Deploy, named: boolean, hostname: string): Response {
@@ -158,6 +227,25 @@ function contentHeaders(type: string, etag: string, status: number, named: boole
     "Access-Control-Allow-Origin": "*",
     "Cache-Control": cacheControl,
     ETag: etag
+  });
+}
+
+function storedEncoding(file: PackFile): "br" | "gzip" | null {
+  if (file.br) return "br";
+  if (file.gzip) return "gzip";
+  return null;
+}
+
+function decompressionFormat(encoding: "br" | "gzip"): "brotli" | "gzip" {
+  if (encoding === "br") return "brotli";
+  return "gzip";
+}
+
+function acceptsEncoding(clientEncodings: string, encoding: string): boolean {
+  return clientEncodings.split(",").some((part) => {
+    const [token, ...parameters] = part.toLowerCase().split(";");
+    const refused = parameters.some((parameter) => /^\s*q=0(\.0*)?\s*$/.test(parameter));
+    return token.trim() === encoding && !refused;
   });
 }
 

@@ -1,4 +1,5 @@
 import { strict as assert } from "node:assert";
+import { randomBytes } from "node:crypto";
 import { performance } from "node:perf_hooks";
 import { test } from "vite-plus/test";
 import { deploy, folder, newHome, uniqueName, upload, visit } from "../helpers/site";
@@ -490,6 +491,20 @@ test("rules that would push the index past 2 MB are cut to fit and reported", as
   assert.equal((await visit(url, "/page-0")).headers.location, `/${"d".repeat(240)}-0`);
   assert.equal((await visit(url, `/page-${count - 1}`)).status, 301);
   assert.equal((await visit(url, `/page-${count}`)).status, 404);
+});
+
+test("rules that compress too poorly for the compact index are cut to fit and reported, and the deploy still goes through", async () => {
+  const lines: string[] = [];
+  for (let number = 0; number < 10_000; number += 1) lines.push(`/page-${number}  /${randomBytes(48).toString("hex")}  301`);
+  const { url, run } = await deploy(["--no-copy", folder({ _redirects: lines.join("\n"), "index.html": "home" })]);
+  const kept = /_redirects: only the first ([\d,]+) rules fit in a deploy's 2 MB index/.exec(run.stderr);
+  assert.ok(kept, run.stderr);
+  const count = Number(kept[1].replace(/,/g, ""));
+  assert.ok(count > 1_000 && count < 10_000, `${count} rules kept`);
+  assert.equal((await visit(url, "/page-0")).headers.location, `/${lines[0].split(/\s+/)[1].slice(1)}`);
+  assert.equal((await visit(url, `/page-${count - 1}`)).status, 301);
+  assert.equal((await visit(url, `/page-${count}`)).status, 404);
+  assert.equal((await visit(url, "/")).text, "home");
 });
 
 test("the plain 404 carries the headers that match its path", async () => {

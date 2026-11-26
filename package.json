@@ -1,6 +1,6 @@
 {
   "name": "site",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": false,
   "description": "Static sites, live in one command.",
   "homepage": "https://site.stoff.dev",
@@ -17,7 +17,8 @@
     "dev": "vp dev",
     "build": "vp build",
     "check": "vp check && cargo fmt --manifest-path cli/Cargo.toml --check && cargo clippy --manifest-path cli/Cargo.toml --locked -- -D warnings && NODE_OPTIONS=--max-http-header-size=65536 vp test run",
-    "deploy": "vp build && wrangler deploy",
+    "deploy": "vp build && node scripts/check-deploy.ts site site.stoff.dev && wrangler deploy",
+    "deploy:staging": "CLOUDFLARE_ENV=staging vp build && node scripts/check-deploy.ts site-staging site-staging.stoff.dev && wrangler deploy",
     "prepare": "vp config"
   },
   "dependencies": {

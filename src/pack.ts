@@ -10,13 +10,14 @@ export const PREAMBLE_LENGTH = PACK_MAGIC.byteLength + INDEX_LENGTH_BYTES;
 export const MAX_DEPLOY_BYTES = 100_000_000;
 export const MAX_FILES = 5000;
 export const MAX_INDEX_BYTES = 2_000_000;
+export const WORKER_INDEX = { index: "worker" };
 const MAX_PATH_LENGTH = 1024;
 const MAX_TYPE_LENGTH = 200;
 
 const ENTRY_TYPE = "application/octet-stream";
 const SALT_PATTERN = /^[A-Za-z0-9_-]{22}$/;
 
-export type PackFile = { path: string; offset: number; length: number; type: string; gzip: boolean };
+export type PackFile = { path: string; offset: number; length: number; type: string; gzip: boolean; br?: boolean; origin?: string };
 export type Encrypted = { name?: string; linkSalt?: string; contentSalt: string };
 export type PackIndex = { spa: boolean; files: PackFile[]; encrypted?: Encrypted; rules?: SiteRules };
 export type IndexCheck = { index: PackIndex } | { problem: string };
@@ -39,13 +40,19 @@ export function readIndexLength(preamble: Uint8Array): number {
   return new DataView(preamble.buffer, preamble.byteOffset, preamble.byteLength).getUint32(PACK_MAGIC.byteLength);
 }
 
-export function decodeIndex(json: Uint8Array): PackIndex {
+export function decodeIndex(json: Uint8Array, writtenByWorker: boolean): PackIndex {
   const index = JSON.parse(decoder.decode(json)) as PackIndex;
   if (index.encrypted) return { spa: false, files: index.files.map((file, number) => opaqueEntry(number, file.offset, file.length)), encrypted: index.encrypted };
   const rules = checkRules(index.rules);
   if ("problem" in rules) delete index.rules;
   else index.rules = rules.rules;
-  return index;
+  if (writtenByWorker) return index;
+  const files = index.files.map((file) => ({ path: file.path, offset: file.offset, length: file.length, type: file.type, gzip: file.gzip }));
+  return { ...index, files };
+}
+
+export function indexWrittenByWorker(object: R2Object): boolean {
+  return object.customMetadata?.index === WORKER_INDEX.index;
 }
 
 export function checkIndex(json: Uint8Array, dataLength: number): IndexCheck {
@@ -73,8 +80,10 @@ export function checkIndex(json: Uint8Array, dataLength: number): IndexCheck {
     if (seen.has(path)) return { problem: `The pack lists ${path} twice.` };
     if (offset !== expectedOffset) return { problem: `The pack's offsets do not line up at ${path}.` };
     if (!Number.isSafeInteger(length) || (length as number) < 0) return { problem: `The pack has a bad length for ${path}.` };
-    if (typeof type !== "string" || type.length === 0 || type.length > MAX_TYPE_LENGTH || !/^[\x20-\x7e]+$/.test(type)) return { problem: `The pack has a bad content type for ${path}.` };
+    if (!validType(type)) return { problem: `The pack has a bad content type for ${path}.` };
     if (typeof gzip !== "boolean") return { problem: `The pack needs a gzip flag for ${path}.` };
+    if ("origin" in file) return { problem: `The pack sets an origin for ${path}; only the Worker writes that.` };
+    if ("br" in file) return { problem: `The pack sets br for ${path}; only the Worker writes that.` };
     seen.add(path);
     checked.push({ path, offset, length: length as number, type, gzip });
     expectedOffset += length as number;
@@ -122,6 +131,10 @@ function checkEncrypted(value: unknown): Encrypted | null {
 
 function opaqueEntry(number: number, offset: number, length: number): PackFile {
   return { path: String(number), offset, length, type: ENTRY_TYPE, gzip: false };
+}
+
+export function validType(type: unknown): type is string {
+  return typeof type === "string" && type.length > 0 && type.length <= MAX_TYPE_LENGTH && /^[\x20-\x7e]+$/.test(type);
 }
 
 export function validPath(path: string): boolean {

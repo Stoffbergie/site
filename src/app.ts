@@ -23,7 +23,10 @@ type AppContext = Context<{ Bindings: Env }>;
 type Caller = { kind: "admin" } | { kind: "key"; owner: string } | { kind: "anonymous" } | { kind: "invalid" };
 type Claim = { etag: string | null; pointedId: string | null };
 
+type Pointing = "pointed" | "lost" | "holds encrypted";
+
 const RELEASED_BY_ADMIN = "admin";
+const POINTER_ATTEMPTS = 5;
 
 export const app = new Hono<{ Bindings: Env }>();
 
@@ -180,13 +183,29 @@ async function deploy(c: AppContext, filename: string): Promise<Response> {
       await removeDeploy(c.env, stored.id, owner);
       return text(`${name} holds an encrypted site; deploy with -e to keep it private, or release it with site rm ${name} first.\n`, 409);
     }
-    const pointed = await writePointer(c.env, name, owner, stored.id, claim.etag);
-    if (!pointed) {
+    const pointing = await pointName(c, name, owner, stored.id, claim, stored.encrypted !== null);
+    if (pointing === "holds encrypted") {
+      await removeDeploy(c.env, stored.id, owner);
+      return text(`${name} holds an encrypted site; deploy with -e to keep it private, or release it with site rm ${name} first.\n`, 409);
+    }
+    if (pointing === "lost") {
       await removeDeploy(c.env, stored.id, owner);
       return text("That name is taken; pick another.\n", 409);
     }
   }
   return deployed(c, stored, name);
+}
+
+async function pointName(c: AppContext, name: string, owner: string, id: string, claim: Claim, encrypted: boolean): Promise<Pointing> {
+  let expected = claim.etag;
+  for (let attempt = 0; attempt < POINTER_ATTEMPTS; attempt += 1) {
+    if (await writePointer(c.env, name, owner, id, expected)) return "pointed";
+    const current = await readPointerRecord(c.env, name);
+    if (current === null || current.pointer?.owner !== owner) return "lost";
+    if (!encrypted && (await holdsEncrypted(c, current.pointer.id))) return "holds encrypted";
+    expected = current.etag;
+  }
+  return "lost";
 }
 
 async function prepareClaim(c: AppContext, name: string, owner: string): Promise<Claim | Response> {

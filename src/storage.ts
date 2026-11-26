@@ -1,10 +1,12 @@
 import { fitCharset, mayCarryCharset } from "./charset";
+import { readCompactPack, startsWithCompactMagic } from "./compact";
 import type { Env } from "./env";
 import { randomId } from "./names";
 import {
   checkIndex,
   decodeIndex,
   encodeHeader,
+  indexWrittenByWorker,
   MAX_DEPLOY_BYTES,
   MAX_INDEX_BYTES,
   PACK_MAGIC,
@@ -13,6 +15,7 @@ import {
   StreamTaker,
   startsWithMagic,
   validPath,
+  WORKER_INDEX,
   type Encrypted,
   type PackIndex
 } from "./pack";
@@ -24,14 +27,16 @@ export const EDGE_SECONDS = 300;
 const HEAD_READ_BYTES = 65_536;
 const CHARSET_SNIFF_BYTES = 65_536;
 const MEMORY_ENTRIES = 500;
+export const EXPIRES_HEADER = "X-Site-Expires";
+const INDEX_BY_HEADER = "X-Site-Index";
 
 export type Deploy = { id: string; index: PackIndex; dataStart: number; byPath: Map<string, number> };
 export type Stored = { id: string; files: number; size: number; encrypted: Encrypted | null };
-export type StoreResult = { stored: Stored } | { problem: string; status: 400 | 411 | 413 };
+export type StoreResult = { stored: Stored } | { problem: string; status: 400 | 411 | 412 | 413 };
 export type Pointer = { id: string; owner: string };
 export type PointerRecord = { etag: string; pointer: Pointer | null; releasedBy: string | null };
 
-const memory = new Map<string, { deploy: Deploy; loadedAt: number }>();
+const memory = new Map<string, { deploy: Deploy; expiresAt: number }>();
 
 export function deployKey(id: string): string {
   return `d/${id}`;
@@ -58,6 +63,8 @@ export async function storeDeploy(env: Env, request: Request, filename: string, 
   let source: ReadableStream<Uint8Array>;
   let total: number;
   let index: PackIndex;
+  let writtenByWorker = true;
+  let sourceGone = (): boolean => false;
 
   if (startsWithMagic(magic)) {
     const lengthBytes = await taker.take(PREAMBLE_LENGTH - PACK_MAGIC.byteLength);
@@ -74,6 +81,14 @@ export async function storeDeploy(env: Env, request: Request, filename: string, 
     index = check.index;
     source = taker.remaining([preamble, json]);
     total = body.length;
+    writtenByWorker = false;
+  } else if (startsWithCompactMagic(magic)) {
+    const compact = await readCompactPack(env, taker, body.length, owner);
+    if ("problem" in compact) return compact;
+    index = compact.index;
+    source = compact.source;
+    total = compact.total;
+    sourceGone = compact.sourceGone;
   } else {
     const safeName = validPath(filename) && !filename.includes("/") ? filename : "file";
     let type = knownType(safeName);
@@ -102,6 +117,7 @@ export async function storeDeploy(env: Env, request: Request, filename: string, 
   const listed: Record<string, string> = { files: String(files), size: String(size), ...linkHint(index.encrypted) };
   const metadata: Record<string, string> = { ...listed };
   if (owner) metadata.owner = owner;
+  if (writtenByWorker) Object.assign(metadata, WORKER_INDEX);
 
   const id = randomId();
   const fixed = new FixedLengthStream(total);
@@ -110,6 +126,7 @@ export async function storeDeploy(env: Env, request: Request, filename: string, 
   try {
     [written] = await Promise.all([env.SITES.put(deployKey(id), fixed.readable, { customMetadata: metadata, onlyIf: new Headers({ "if-none-match": "*" }) }), piping]);
   } catch {
+    if (sourceGone()) return { problem: "An earlier deploy this one builds on is gone; deploy again.", status: 412 };
     return malformed("The upload was shorter or longer than it said; deploy again.");
   }
   if (!written) throw new Error(`Deploy id ${id} was already taken`);
@@ -140,39 +157,55 @@ export async function removeDeploy(env: Env, id: string, owner: string | undefin
 
 export async function loadDeploy(env: Env, id: string): Promise<Deploy | null> {
   const remembered = memory.get(id);
-  if (remembered && Date.now() - remembered.loadedAt < EDGE_SECONDS * 1000) return remembered.deploy;
+  if (remembered && Date.now() < remembered.expiresAt) return remembered.deploy;
 
-  const cacheKey = new Request(`https://${env.SITE_DOMAIN}/__index/${id}`);
+  const cacheKey = new Request(`https://${env.SITE_DOMAIN}/__index/v2/${id}`);
   const cached = await caches.default.match(cacheKey);
-  let header: Uint8Array | null = null;
-  if (cached) header = new Uint8Array(await cached.arrayBuffer());
+  let header: StoredHeader | null = null;
+  if (cached) {
+    const bytes = new Uint8Array(await cached.arrayBuffer());
+    const writtenByWorker = cached.headers.get(INDEX_BY_HEADER) === WORKER_INDEX.index;
+    header = { bytes, writtenByWorker, expiresAt: expiryOf(cached) };
+  }
   if (!header) {
-    header = await readHeader(env, id);
-    if (!header) return null;
-    await caches.default.put(cacheKey, new Response(header, { headers: { "Cache-Control": `public, max-age=${EDGE_SECONDS}` } }));
+    const read = await readHeader(env, id);
+    if (!read) return null;
+    header = { ...read, expiresAt: Date.now() + EDGE_SECONDS * 1000 };
+    const headers: Record<string, string> = { "Cache-Control": `public, max-age=${EDGE_SECONDS}`, [EXPIRES_HEADER]: String(header.expiresAt) };
+    if (header.writtenByWorker) headers[INDEX_BY_HEADER] = WORKER_INDEX.index;
+    await caches.default.put(cacheKey, new Response(header.bytes, { headers }));
   }
 
-  const index = decodeIndex(header.subarray(PREAMBLE_LENGTH));
+  const index = decodeIndex(header.bytes.subarray(PREAMBLE_LENGTH), header.writtenByWorker);
   const byPath = byPathOf(index.files);
-  const deploy = { id, index, dataStart: header.byteLength, byPath };
-  remember(id, deploy);
+  const deploy = { id, index, dataStart: header.bytes.byteLength, byPath };
+  remember(id, deploy, header.expiresAt);
   return deploy;
 }
 
-async function readHeader(env: Env, id: string): Promise<Uint8Array | null> {
-  const start = await env.SITES.get(deployKey(id), { range: { offset: 0, length: HEAD_READ_BYTES } });
-  if (!start) return null;
-  const bytes = new Uint8Array(await start.arrayBuffer());
-  const headerLength = PREAMBLE_LENGTH + readIndexLength(bytes);
-  if (headerLength <= bytes.byteLength) return bytes.slice(0, headerLength);
-  const whole = await env.SITES.get(deployKey(id), { range: { offset: 0, length: headerLength } });
-  if (!whole) return null;
-  return new Uint8Array(await whole.arrayBuffer());
+type StoredHeader = { bytes: Uint8Array; writtenByWorker: boolean; expiresAt: number };
+
+export function expiryOf(cached: Response): number {
+  const expiresAt = Number(cached.headers.get(EXPIRES_HEADER));
+  if (!Number.isFinite(expiresAt)) return 0;
+  return expiresAt;
 }
 
-function remember(id: string, deploy: Deploy): void {
+async function readHeader(env: Env, id: string): Promise<{ bytes: Uint8Array; writtenByWorker: boolean } | null> {
+  const start = await env.SITES.get(deployKey(id), { range: { offset: 0, length: HEAD_READ_BYTES } });
+  if (!start) return null;
+  const writtenByWorker = indexWrittenByWorker(start);
+  const bytes = new Uint8Array(await start.arrayBuffer());
+  const headerLength = PREAMBLE_LENGTH + readIndexLength(bytes);
+  if (headerLength <= bytes.byteLength) return { bytes: bytes.slice(0, headerLength), writtenByWorker };
+  const whole = await env.SITES.get(deployKey(id), { range: { offset: 0, length: headerLength } });
+  if (!whole) return null;
+  return { bytes: new Uint8Array(await whole.arrayBuffer()), writtenByWorker };
+}
+
+function remember(id: string, deploy: Deploy, expiresAt: number): void {
   memory.delete(id);
-  memory.set(id, { deploy, loadedAt: Date.now() });
+  memory.set(id, { deploy, expiresAt });
   if (memory.size > MEMORY_ENTRIES) {
     const oldest = memory.keys().next().value as string;
     memory.delete(oldest);

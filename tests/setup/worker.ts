@@ -43,6 +43,6 @@ export default async function startWorker(project: TestProject): Promise<() => P
   project.provide("baseUrl", `http://127.0.0.1:${address.port}`);
   project.provide("siteDomain", siteDomain);
   project.provide("adminToken", adminToken);
-  project.provide("cli", `${process.cwd()}/cli/target/debug/site`);
+  project.provide("cli", process.env.SITE_TEST_CLI ?? `${process.cwd()}/cli/target/debug/site`);
   return () => server.close();
 }

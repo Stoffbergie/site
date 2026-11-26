@@ -1,0 +1,1115 @@
+[
+  { "args": [], "code": 1, "stdout": "", "stderr": "site: give a folder or files to deploy, like: site dist\n" },
+  {
+    "args": ["--help"],
+    "code": 0,
+    "stdout": "Static sites, live in one command\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nCommands:\n  ls     List your names and deploys\n  point  Point a name at one of your deploys\n  rm     Delete a deploy or release a name\n  key    Print your key, or save a key from another machine\n  help   Print this message or the help of the given subcommand(s)\n\nArguments:\n  [PATHS]...  A folder, files, or - for stdin\n\nOptions:\n  -n, --name <NAME>  Point this name at the deploy, like todo for todo.site.stoff.dev\n  -e, --encrypt      Encrypt the site on this machine; only the printed link, with its key after #, opens it\n      --spa          Serve index.html for unknown paths without a file extension\n      --no-copy      Leave the clipboard unchanged after deploying\n  -h, --help         Print help\n  -V, --version      Print version\n\nExamples:\n  site dist                      Deploy a folder and print its URL\n  site dist -n todo              Also point todo.site.stoff.dev at it\n  site dist -e                   Encrypt it; only the full link opens it\n  site index.html style.css      Deploy loose files at the root\n  cat page.html | site -         Deploy stdin as index.html\n  site dist --spa                Serve index.html for client-side routes\n  site ls                        List your names and deploys\n  site point todo k3m9xq2a       Point a name at an earlier deploy\n  site rm k3m9xq2a               Delete a deploy (or release a name)\n  site key                       Print your key, to use on another machine\n\nSet SITE_KEY to use a key without saving it, and SITE_URL to use another server.\n",
+    "stderr": ""
+  },
+  {
+    "args": ["-h"],
+    "code": 0,
+    "stdout": "Static sites, live in one command\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nCommands:\n  ls     List your names and deploys\n  point  Point a name at one of your deploys\n  rm     Delete a deploy or release a name\n  key    Print your key, or save a key from another machine\n  help   Print this message or the help of the given subcommand(s)\n\nArguments:\n  [PATHS]...  A folder, files, or - for stdin\n\nOptions:\n  -n, --name <NAME>  Point this name at the deploy, like todo for todo.site.stoff.dev\n  -e, --encrypt      Encrypt the site on this machine; only the printed link, with its key after #, opens it\n      --spa          Serve index.html for unknown paths without a file extension\n      --no-copy      Leave the clipboard unchanged after deploying\n  -h, --help         Print help\n  -V, --version      Print version\n\nExamples:\n  site dist                      Deploy a folder and print its URL\n  site dist -n todo              Also point todo.site.stoff.dev at it\n  site dist -e                   Encrypt it; only the full link opens it\n  site index.html style.css      Deploy loose files at the root\n  cat page.html | site -         Deploy stdin as index.html\n  site dist --spa                Serve index.html for client-side routes\n  site ls                        List your names and deploys\n  site point todo k3m9xq2a       Point a name at an earlier deploy\n  site rm k3m9xq2a               Delete a deploy (or release a name)\n  site key                       Print your key, to use on another machine\n\nSet SITE_KEY to use a key without saving it, and SITE_URL to use another server.\n",
+    "stderr": ""
+  },
+  {
+    "args": ["help"],
+    "code": 0,
+    "stdout": "Static sites, live in one command\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nCommands:\n  ls     List your names and deploys\n  point  Point a name at one of your deploys\n  rm     Delete a deploy or release a name\n  key    Print your key, or save a key from another machine\n  help   Print this message or the help of the given subcommand(s)\n\nArguments:\n  [PATHS]...  A folder, files, or - for stdin\n\nOptions:\n  -n, --name <NAME>  Point this name at the deploy, like todo for todo.site.stoff.dev\n  -e, --encrypt      Encrypt the site on this machine; only the printed link, with its key after #, opens it\n      --spa          Serve index.html for unknown paths without a file extension\n      --no-copy      Leave the clipboard unchanged after deploying\n  -h, --help         Print help\n  -V, --version      Print version\n\nExamples:\n  site dist                      Deploy a folder and print its URL\n  site dist -n todo              Also point todo.site.stoff.dev at it\n  site dist -e                   Encrypt it; only the full link opens it\n  site index.html style.css      Deploy loose files at the root\n  cat page.html | site -         Deploy stdin as index.html\n  site dist --spa                Serve index.html for client-side routes\n  site ls                        List your names and deploys\n  site point todo k3m9xq2a       Point a name at an earlier deploy\n  site rm k3m9xq2a               Delete a deploy (or release a name)\n  site key                       Print your key, to use on another machine\n\nSet SITE_KEY to use a key without saving it, and SITE_URL to use another server.\n",
+    "stderr": ""
+  },
+  {
+    "args": ["help", "help"],
+    "code": 0,
+    "stdout": "Print this message or the help of the given subcommand(s)\n\nUsage: site help [COMMAND]...\n\nArguments:\n  [COMMAND]...  Print help for the subcommand(s)\n",
+    "stderr": ""
+  },
+  { "args": ["help", "ls"], "code": 0, "stdout": "List your names and deploys\n\nUsage: site ls\n\nOptions:\n  -h, --help  Print help\n", "stderr": "" },
+  {
+    "args": ["help", "point"],
+    "code": 0,
+    "stdout": "Point a name at one of your deploys\n\nUsage: site point <NAME> <ID>\n\nArguments:\n  <NAME>  Name, like todo\n  <ID>    Deploy id, like k3m9xq2a\n\nOptions:\n  -h, --help  Print help\n",
+    "stderr": ""
+  },
+  {
+    "args": ["help", "rm"],
+    "code": 0,
+    "stdout": "Delete a deploy or release a name\n\nUsage: site rm <TARGET>\n\nArguments:\n  <TARGET>  Deploy id or name\n\nOptions:\n  -h, --help  Print help\n",
+    "stderr": ""
+  },
+  {
+    "args": ["help", "key"],
+    "code": 0,
+    "stdout": "Print your key, or save a key from another machine\n\nUsage: site key [KEY]\n\nArguments:\n  [KEY]  A key printed by site key on another machine\n\nOptions:\n  -h, --help  Print help\n",
+    "stderr": ""
+  },
+  {
+    "args": ["help", "nope"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unrecognized subcommand 'nope'\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nFor more information, try '--help'.\n"
+  },
+  { "args": ["help", "ls", "point"], "code": 2, "stdout": "", "stderr": "error: unrecognized subcommand 'point'\n\nUsage: site ls\n\nFor more information, try '--help'.\n" },
+  {
+    "args": ["help", "--help"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unrecognized subcommand '--help'\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["help", "-h"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unrecognized subcommand '-h'\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["help", "-x"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unrecognized subcommand '-x'\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nFor more information, try '--help'.\n"
+  },
+  { "args": ["-V"], "code": 0, "stdout": "site 0.4.0\n", "stderr": "" },
+  { "args": ["--version"], "code": 0, "stdout": "site 0.4.0\n", "stderr": "" },
+  { "args": ["-Vh"], "code": 0, "stdout": "site 0.4.0\n", "stderr": "" },
+  {
+    "args": ["-hV"],
+    "code": 0,
+    "stdout": "Static sites, live in one command\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nCommands:\n  ls     List your names and deploys\n  point  Point a name at one of your deploys\n  rm     Delete a deploy or release a name\n  key    Print your key, or save a key from another machine\n  help   Print this message or the help of the given subcommand(s)\n\nArguments:\n  [PATHS]...  A folder, files, or - for stdin\n\nOptions:\n  -n, --name <NAME>  Point this name at the deploy, like todo for todo.site.stoff.dev\n  -e, --encrypt      Encrypt the site on this machine; only the printed link, with its key after #, opens it\n      --spa          Serve index.html for unknown paths without a file extension\n      --no-copy      Leave the clipboard unchanged after deploying\n  -h, --help         Print help\n  -V, --version      Print version\n\nExamples:\n  site dist                      Deploy a folder and print its URL\n  site dist -n todo              Also point todo.site.stoff.dev at it\n  site dist -e                   Encrypt it; only the full link opens it\n  site index.html style.css      Deploy loose files at the root\n  cat page.html | site -         Deploy stdin as index.html\n  site dist --spa                Serve index.html for client-side routes\n  site ls                        List your names and deploys\n  site point todo k3m9xq2a       Point a name at an earlier deploy\n  site rm k3m9xq2a               Delete a deploy (or release a name)\n  site key                       Print your key, to use on another machine\n\nSet SITE_KEY to use a key without saving it, and SITE_URL to use another server.\n",
+    "stderr": ""
+  },
+  { "args": ["-V", "-h"], "code": 0, "stdout": "site 0.4.0\n", "stderr": "" },
+  {
+    "args": ["--version=x"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected value 'x' for '--version' found; no more were expected\n\nUsage: site --version [PATHS]...\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--help=x"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected value 'x' for '--help' found; no more were expected\n\nUsage: site --help [PATHS]...\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["-h", "nope"],
+    "code": 0,
+    "stdout": "Static sites, live in one command\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nCommands:\n  ls     List your names and deploys\n  point  Point a name at one of your deploys\n  rm     Delete a deploy or release a name\n  key    Print your key, or save a key from another machine\n  help   Print this message or the help of the given subcommand(s)\n\nArguments:\n  [PATHS]...  A folder, files, or - for stdin\n\nOptions:\n  -n, --name <NAME>  Point this name at the deploy, like todo for todo.site.stoff.dev\n  -e, --encrypt      Encrypt the site on this machine; only the printed link, with its key after #, opens it\n      --spa          Serve index.html for unknown paths without a file extension\n      --no-copy      Leave the clipboard unchanged after deploying\n  -h, --help         Print help\n  -V, --version      Print version\n\nExamples:\n  site dist                      Deploy a folder and print its URL\n  site dist -n todo              Also point todo.site.stoff.dev at it\n  site dist -e                   Encrypt it; only the full link opens it\n  site index.html style.css      Deploy loose files at the root\n  cat page.html | site -         Deploy stdin as index.html\n  site dist --spa                Serve index.html for client-side routes\n  site ls                        List your names and deploys\n  site point todo k3m9xq2a       Point a name at an earlier deploy\n  site rm k3m9xq2a               Delete a deploy (or release a name)\n  site key                       Print your key, to use on another machine\n\nSet SITE_KEY to use a key without saving it, and SITE_URL to use another server.\n",
+    "stderr": ""
+  },
+  {
+    "args": ["nope", "-h"],
+    "code": 0,
+    "stdout": "Static sites, live in one command\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nCommands:\n  ls     List your names and deploys\n  point  Point a name at one of your deploys\n  rm     Delete a deploy or release a name\n  key    Print your key, or save a key from another machine\n  help   Print this message or the help of the given subcommand(s)\n\nArguments:\n  [PATHS]...  A folder, files, or - for stdin\n\nOptions:\n  -n, --name <NAME>  Point this name at the deploy, like todo for todo.site.stoff.dev\n  -e, --encrypt      Encrypt the site on this machine; only the printed link, with its key after #, opens it\n      --spa          Serve index.html for unknown paths without a file extension\n      --no-copy      Leave the clipboard unchanged after deploying\n  -h, --help         Print help\n  -V, --version      Print version\n\nExamples:\n  site dist                      Deploy a folder and print its URL\n  site dist -n todo              Also point todo.site.stoff.dev at it\n  site dist -e                   Encrypt it; only the full link opens it\n  site index.html style.css      Deploy loose files at the root\n  cat page.html | site -         Deploy stdin as index.html\n  site dist --spa                Serve index.html for client-side routes\n  site ls                        List your names and deploys\n  site point todo k3m9xq2a       Point a name at an earlier deploy\n  site rm k3m9xq2a               Delete a deploy (or release a name)\n  site key                       Print your key, to use on another machine\n\nSet SITE_KEY to use a key without saving it, and SITE_URL to use another server.\n",
+    "stderr": ""
+  },
+  { "args": ["nope", "--version"], "code": 0, "stdout": "site 0.4.0\n", "stderr": "" },
+  { "args": ["-n"], "code": 2, "stdout": "", "stderr": "error: a value is required for '--name <NAME>' but none was supplied\n\nFor more information, try '--help'.\n" },
+  { "args": ["--name"], "code": 2, "stdout": "", "stderr": "error: a value is required for '--name <NAME>' but none was supplied\n\nFor more information, try '--help'.\n" },
+  {
+    "args": ["-n", "foo", "--name", "bar"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: the argument '--name <NAME>' cannot be used multiple times\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["-n", "a", "-n", "b"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: the argument '--name <NAME>' cannot be used multiple times\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nFor more information, try '--help'.\n"
+  },
+  { "args": ["--name="], "code": 1, "stdout": "", "stderr": "site: give a folder or files to deploy, like: site dist\n" },
+  { "args": ["-n="], "code": 1, "stdout": "", "stderr": "site: give a folder or files to deploy, like: site dist\n" },
+  { "args": ["-nfoo", "nope"], "code": 1, "stdout": "", "stderr": "site: could not find nope: No such file or directory (os error 2)\n" },
+  { "args": ["-n=foo", "nope"], "code": 1, "stdout": "", "stderr": "site: could not find nope: No such file or directory (os error 2)\n" },
+  { "args": ["--name", "foo", "nope"], "code": 1, "stdout": "", "stderr": "site: could not find nope: No such file or directory (os error 2)\n" },
+  { "args": ["--name=foo", "nope"], "code": 1, "stdout": "", "stderr": "site: could not find nope: No such file or directory (os error 2)\n" },
+  { "args": ["-e"], "code": 1, "stdout": "", "stderr": "site: give a folder or files to deploy, like: site dist\n" },
+  {
+    "args": ["-ee"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: the argument '--encrypt' cannot be used multiple times\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["-e", "-e"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: the argument '--encrypt' cannot be used multiple times\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--encrypt", "--encrypt"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: the argument '--encrypt' cannot be used multiple times\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["-e", "--encrypt"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: the argument '--encrypt' cannot be used multiple times\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--encrypt=x"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected value 'x' for '--encrypt' found; no more were expected\n\nUsage: site --encrypt [PATHS]...\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--spa=x"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected value 'x' for '--spa' found; no more were expected\n\nUsage: site --spa [PATHS]...\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--no-copy=x"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected value 'x' for '--no-copy' found; no more were expected\n\nUsage: site --no-copy [PATHS]...\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--spa", "--spa"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: the argument '--spa' cannot be used multiple times\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--no-copy", "--no-copy"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: the argument '--no-copy' cannot be used multiple times\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["-x"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '-x' found\n\n  tip: to pass '-x' as a value, use '-- -x'\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--x"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--x' found\n\n  tip: to pass '--x' as a value, use '-- --x'\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--unknown"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--unknown' found\n\n  tip: to pass '--unknown' as a value, use '-- --unknown'\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nFor more information, try '--help'.\n"
+  },
+  { "args": ["-en", "foo", "nope"], "code": 1, "stdout": "", "stderr": "site: could not find nope: No such file or directory (os error 2)\n" },
+  { "args": ["-ne", "nope"], "code": 1, "stdout": "", "stderr": "site: could not find nope: No such file or directory (os error 2)\n" },
+  { "args": ["-enfoo", "nope"], "code": 1, "stdout": "", "stderr": "site: could not find nope: No such file or directory (os error 2)\n" },
+  {
+    "args": ["-ex"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '-x' found\n\n  tip: to pass '-x' as a value, use '-- -x'\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["-xe"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '-x' found\n\n  tip: to pass '-x' as a value, use '-- -x'\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["-eh"],
+    "code": 0,
+    "stdout": "Static sites, live in one command\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nCommands:\n  ls     List your names and deploys\n  point  Point a name at one of your deploys\n  rm     Delete a deploy or release a name\n  key    Print your key, or save a key from another machine\n  help   Print this message or the help of the given subcommand(s)\n\nArguments:\n  [PATHS]...  A folder, files, or - for stdin\n\nOptions:\n  -n, --name <NAME>  Point this name at the deploy, like todo for todo.site.stoff.dev\n  -e, --encrypt      Encrypt the site on this machine; only the printed link, with its key after #, opens it\n      --spa          Serve index.html for unknown paths without a file extension\n      --no-copy      Leave the clipboard unchanged after deploying\n  -h, --help         Print help\n  -V, --version      Print version\n\nExamples:\n  site dist                      Deploy a folder and print its URL\n  site dist -n todo              Also point todo.site.stoff.dev at it\n  site dist -e                   Encrypt it; only the full link opens it\n  site index.html style.css      Deploy loose files at the root\n  cat page.html | site -         Deploy stdin as index.html\n  site dist --spa                Serve index.html for client-side routes\n  site ls                        List your names and deploys\n  site point todo k3m9xq2a       Point a name at an earlier deploy\n  site rm k3m9xq2a               Delete a deploy (or release a name)\n  site key                       Print your key, to use on another machine\n\nSet SITE_KEY to use a key without saving it, and SITE_URL to use another server.\n",
+    "stderr": ""
+  },
+  {
+    "args": ["-he"],
+    "code": 0,
+    "stdout": "Static sites, live in one command\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nCommands:\n  ls     List your names and deploys\n  point  Point a name at one of your deploys\n  rm     Delete a deploy or release a name\n  key    Print your key, or save a key from another machine\n  help   Print this message or the help of the given subcommand(s)\n\nArguments:\n  [PATHS]...  A folder, files, or - for stdin\n\nOptions:\n  -n, --name <NAME>  Point this name at the deploy, like todo for todo.site.stoff.dev\n  -e, --encrypt      Encrypt the site on this machine; only the printed link, with its key after #, opens it\n      --spa          Serve index.html for unknown paths without a file extension\n      --no-copy      Leave the clipboard unchanged after deploying\n  -h, --help         Print help\n  -V, --version      Print version\n\nExamples:\n  site dist                      Deploy a folder and print its URL\n  site dist -n todo              Also point todo.site.stoff.dev at it\n  site dist -e                   Encrypt it; only the full link opens it\n  site index.html style.css      Deploy loose files at the root\n  cat page.html | site -         Deploy stdin as index.html\n  site dist --spa                Serve index.html for client-side routes\n  site ls                        List your names and deploys\n  site point todo k3m9xq2a       Point a name at an earlier deploy\n  site rm k3m9xq2a               Delete a deploy (or release a name)\n  site key                       Print your key, to use on another machine\n\nSet SITE_KEY to use a key without saving it, and SITE_URL to use another server.\n",
+    "stderr": ""
+  },
+  { "args": ["-eV"], "code": 0, "stdout": "site 0.4.0\n", "stderr": "" },
+  { "args": ["-e", "nope"], "code": 1, "stdout": "", "stderr": "site: could not find nope: No such file or directory (os error 2)\n" },
+  {
+    "args": ["--sap"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--sap' found\n\n  tip: to pass '--sap' as a value, use '-- --sap'\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--spaa"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--spaa' found\n\n  tip: a similar argument exists: '--spa'\n\nUsage: site --spa [PATHS]...\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--nam"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--nam' found\n\n  tip: a similar argument exists: '--name'\n\nUsage: site --name <NAME> [PATHS]...\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--names"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--names' found\n\n  tip: a similar argument exists: '--name'\n\nUsage: site --name <NAME> [PATHS]...\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--encrpyt"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--encrpyt' found\n\n  tip: a similar argument exists: '--encrypt'\n\nUsage: site --encrypt [PATHS]...\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--no-cpy"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--no-cpy' found\n\n  tip: a similar argument exists: '--no-copy'\n\nUsage: site --no-copy [PATHS]...\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--nocopy"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--nocopy' found\n\n  tip: a similar argument exists: '--no-copy'\n\nUsage: site --no-copy [PATHS]...\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--hlep"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--hlep' found\n\n  tip: a similar argument exists: '--help'\n\nUsage: site --help [PATHS]...\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--verison"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--verison' found\n\n  tip: a similar argument exists: '--version'\n\nUsage: site --version [PATHS]...\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--e"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--e' found\n\n  tip: a similar argument exists: '--help'\n\nUsage: site --help [PATHS]...\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--n"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--n' found\n\n  tip: a similar argument exists: '--name'\n\nUsage: site --name <NAME> [PATHS]...\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["-N"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '-N' found\n\n  tip: to pass '-N' as a value, use '-- -N'\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["-E"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '-E' found\n\n  tip: to pass '-E' as a value, use '-- -E'\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["-H"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '-H' found\n\n  tip: to pass '-H' as a value, use '-- -H'\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["-v"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '-v' found\n\n  tip: to pass '-v' as a value, use '-- -v'\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nFor more information, try '--help'.\n"
+  },
+  { "args": ["--", "-x"], "code": 1, "stdout": "", "stderr": "site: could not find -x: No such file or directory (os error 2)\n" },
+  { "args": ["--", "nope"], "code": 1, "stdout": "", "stderr": "site: could not find nope: No such file or directory (os error 2)\n" },
+  { "args": ["-", "nope"], "code": 1, "stdout": "", "stderr": "site: - reads stdin on its own; deploy files separately\n" },
+  { "args": ["-", "-"], "code": 1, "stdout": "", "stderr": "site: - reads stdin on its own; deploy files separately\n" },
+  { "args": ["nope", "-n"], "code": 2, "stdout": "", "stderr": "error: a value is required for '--name <NAME>' but none was supplied\n\nFor more information, try '--help'.\n" },
+  {
+    "args": ["nope", "--spa", "--spa"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: the argument '--spa' cannot be used multiple times\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nFor more information, try '--help'.\n"
+  },
+  { "args": ["-n", "foo", "ls"], "code": 1, "stdout": "", "stderr": "site: could not find ls: No such file or directory (os error 2)\n" },
+  { "args": ["--spa", "ls"], "code": 1, "stdout": "", "stderr": "site: could not find ls: No such file or directory (os error 2)\n" },
+  { "args": ["ls", "--spa"], "code": 2, "stdout": "", "stderr": "error: unexpected argument '--spa' found\n\nUsage: site ls\n\nFor more information, try '--help'.\n" },
+  { "args": ["ls", "extra"], "code": 2, "stdout": "", "stderr": "error: unexpected argument 'extra' found\n\nUsage: site ls\n\nFor more information, try '--help'.\n" },
+  { "args": ["ls", "-x"], "code": 2, "stdout": "", "stderr": "error: unexpected argument '-x' found\n\nUsage: site ls\n\nFor more information, try '--help'.\n" },
+  { "args": ["ls", "--help"], "code": 0, "stdout": "List your names and deploys\n\nUsage: site ls\n\nOptions:\n  -h, --help  Print help\n", "stderr": "" },
+  { "args": ["ls", "-h"], "code": 0, "stdout": "List your names and deploys\n\nUsage: site ls\n\nOptions:\n  -h, --help  Print help\n", "stderr": "" },
+  { "args": ["ls", "--", "x"], "code": 2, "stdout": "", "stderr": "error: unexpected argument 'x' found\n\nUsage: site ls\n\nFor more information, try '--help'.\n" },
+  { "args": ["ls", "--sap"], "code": 2, "stdout": "", "stderr": "error: unexpected argument '--sap' found\n\nUsage: site ls\n\nFor more information, try '--help'.\n" },
+  { "args": ["ls", "-n", "x"], "code": 2, "stdout": "", "stderr": "error: unexpected argument '-n' found\n\nUsage: site ls\n\nFor more information, try '--help'.\n" },
+  {
+    "args": ["point"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: the following required arguments were not provided:\n  <NAME>\n  <ID>\n\nUsage: site point <NAME> <ID>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["point", "a"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: the following required arguments were not provided:\n  <ID>\n\nUsage: site point <NAME> <ID>\n\nFor more information, try '--help'.\n"
+  },
+  { "args": ["point", "a", "b", "c"], "code": 2, "stdout": "", "stderr": "error: unexpected argument 'c' found\n\nUsage: site point <NAME> <ID>\n\nFor more information, try '--help'.\n" },
+  {
+    "args": ["point", "--help"],
+    "code": 0,
+    "stdout": "Point a name at one of your deploys\n\nUsage: site point <NAME> <ID>\n\nArguments:\n  <NAME>  Name, like todo\n  <ID>    Deploy id, like k3m9xq2a\n\nOptions:\n  -h, --help  Print help\n",
+    "stderr": ""
+  },
+  {
+    "args": ["point", "-h"],
+    "code": 0,
+    "stdout": "Point a name at one of your deploys\n\nUsage: site point <NAME> <ID>\n\nArguments:\n  <NAME>  Name, like todo\n  <ID>    Deploy id, like k3m9xq2a\n\nOptions:\n  -h, --help  Print help\n",
+    "stderr": ""
+  },
+  {
+    "args": ["point", "-n", "x"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '-n' found\n\n  tip: to pass '-n' as a value, use '-- -n'\n\nUsage: site point <NAME> <ID>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["point", "a", "-x"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '-x' found\n\n  tip: to pass '-x' as a value, use '-- -x'\n\nUsage: site point <NAME> <ID>\n\nFor more information, try '--help'.\n"
+  },
+  { "args": ["point", "--", "-a", "-b", "-c"], "code": 2, "stdout": "", "stderr": "error: unexpected argument '-c' found\n\nUsage: site point <NAME> <ID>\n\nFor more information, try '--help'.\n" },
+  { "args": ["rm"], "code": 2, "stdout": "", "stderr": "error: the following required arguments were not provided:\n  <TARGET>\n\nUsage: site rm <TARGET>\n\nFor more information, try '--help'.\n" },
+  { "args": ["rm", "a", "b"], "code": 2, "stdout": "", "stderr": "error: unexpected argument 'b' found\n\nUsage: site rm <TARGET>\n\nFor more information, try '--help'.\n" },
+  {
+    "args": ["rm", "--help"],
+    "code": 0,
+    "stdout": "Delete a deploy or release a name\n\nUsage: site rm <TARGET>\n\nArguments:\n  <TARGET>  Deploy id or name\n\nOptions:\n  -h, --help  Print help\n",
+    "stderr": ""
+  },
+  {
+    "args": ["rm", "-x"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '-x' found\n\n  tip: to pass '-x' as a value, use '-- -x'\n\nUsage: site rm <TARGET>\n\nFor more information, try '--help'.\n"
+  },
+  { "args": ["rm", "--", "-x", "y"], "code": 2, "stdout": "", "stderr": "error: unexpected argument 'y' found\n\nUsage: site rm <TARGET>\n\nFor more information, try '--help'.\n" },
+  { "args": ["key", "a", "b"], "code": 2, "stdout": "", "stderr": "error: unexpected argument 'b' found\n\nUsage: site key [KEY]\n\nFor more information, try '--help'.\n" },
+  {
+    "args": ["key", "--help"],
+    "code": 0,
+    "stdout": "Print your key, or save a key from another machine\n\nUsage: site key [KEY]\n\nArguments:\n  [KEY]  A key printed by site key on another machine\n\nOptions:\n  -h, --help  Print help\n",
+    "stderr": ""
+  },
+  {
+    "args": ["key", "-h"],
+    "code": 0,
+    "stdout": "Print your key, or save a key from another machine\n\nUsage: site key [KEY]\n\nArguments:\n  [KEY]  A key printed by site key on another machine\n\nOptions:\n  -h, --help  Print help\n",
+    "stderr": ""
+  },
+  {
+    "args": ["key", "-x"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '-x' found\n\n  tip: to pass '-x' as a value, use '-- -x'\n\nUsage: site key [KEY]\n\nFor more information, try '--help'.\n"
+  },
+  { "args": ["key", "--", "-x", "y"], "code": 2, "stdout": "", "stderr": "error: unexpected argument 'y' found\n\nUsage: site key [KEY]\n\nFor more information, try '--help'.\n" },
+  {
+    "args": ["key", "--hlep"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--hlep' found\n\n  tip: a similar argument exists: '--help'\n\nUsage: site key --help [KEY]\n\nFor more information, try '--help'.\n"
+  },
+  { "args": ["help", "ls", "--help"], "code": 2, "stdout": "", "stderr": "error: unrecognized subcommand '--help'\n\nUsage: site ls\n\nFor more information, try '--help'.\n" },
+  { "args": ["Ls"], "code": 1, "stdout": "", "stderr": "site: could not find Ls: No such file or directory (os error 2)\n" },
+  { "args": ["LS", "extra"], "code": 1, "stdout": "", "stderr": "site: could not find LS: No such file or directory (os error 2)\n" },
+  {
+    "args": ["-n", "-x"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '-x' found\n\n  tip: to pass '-x' as a value, use '-- -x'\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nFor more information, try '--help'.\n"
+  },
+  { "args": ["-n", "--spa"], "code": 2, "stdout": "", "stderr": "error: a value is required for '--name <NAME>' but none was supplied\n\nFor more information, try '--help'.\n" },
+  { "args": ["--name", "--spa"], "code": 2, "stdout": "", "stderr": "error: a value is required for '--name <NAME>' but none was supplied\n\nFor more information, try '--help'.\n" },
+  { "args": ["-n", "-"], "code": 1, "stdout": "", "stderr": "site: give a folder or files to deploy, like: site dist\n" },
+  { "args": ["--name=-x", "nope"], "code": 1, "stdout": "", "stderr": "site: could not find nope: No such file or directory (os error 2)\n" },
+  { "args": ["-n", "--", "nope"], "code": 2, "stdout": "", "stderr": "error: a value is required for '--name <NAME>' but none was supplied\n\nFor more information, try '--help'.\n" },
+  { "args": ["--spa", "-n"], "code": 2, "stdout": "", "stderr": "error: a value is required for '--name <NAME>' but none was supplied\n\nFor more information, try '--help'.\n" },
+  { "args": ["-e", "-n"], "code": 2, "stdout": "", "stderr": "error: a value is required for '--name <NAME>' but none was supplied\n\nFor more information, try '--help'.\n" },
+  {
+    "args": ["--no-copy", "--help"],
+    "code": 0,
+    "stdout": "Static sites, live in one command\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nCommands:\n  ls     List your names and deploys\n  point  Point a name at one of your deploys\n  rm     Delete a deploy or release a name\n  key    Print your key, or save a key from another machine\n  help   Print this message or the help of the given subcommand(s)\n\nArguments:\n  [PATHS]...  A folder, files, or - for stdin\n\nOptions:\n  -n, --name <NAME>  Point this name at the deploy, like todo for todo.site.stoff.dev\n  -e, --encrypt      Encrypt the site on this machine; only the printed link, with its key after #, opens it\n      --spa          Serve index.html for unknown paths without a file extension\n      --no-copy      Leave the clipboard unchanged after deploying\n  -h, --help         Print help\n  -V, --version      Print version\n\nExamples:\n  site dist                      Deploy a folder and print its URL\n  site dist -n todo              Also point todo.site.stoff.dev at it\n  site dist -e                   Encrypt it; only the full link opens it\n  site index.html style.css      Deploy loose files at the root\n  cat page.html | site -         Deploy stdin as index.html\n  site dist --spa                Serve index.html for client-side routes\n  site ls                        List your names and deploys\n  site point todo k3m9xq2a       Point a name at an earlier deploy\n  site rm k3m9xq2a               Delete a deploy (or release a name)\n  site key                       Print your key, to use on another machine\n\nSet SITE_KEY to use a key without saving it, and SITE_URL to use another server.\n",
+    "stderr": ""
+  },
+  {
+    "args": ["--help", "--no-copy"],
+    "code": 0,
+    "stdout": "Static sites, live in one command\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nCommands:\n  ls     List your names and deploys\n  point  Point a name at one of your deploys\n  rm     Delete a deploy or release a name\n  key    Print your key, or save a key from another machine\n  help   Print this message or the help of the given subcommand(s)\n\nArguments:\n  [PATHS]...  A folder, files, or - for stdin\n\nOptions:\n  -n, --name <NAME>  Point this name at the deploy, like todo for todo.site.stoff.dev\n  -e, --encrypt      Encrypt the site on this machine; only the printed link, with its key after #, opens it\n      --spa          Serve index.html for unknown paths without a file extension\n      --no-copy      Leave the clipboard unchanged after deploying\n  -h, --help         Print help\n  -V, --version      Print version\n\nExamples:\n  site dist                      Deploy a folder and print its URL\n  site dist -n todo              Also point todo.site.stoff.dev at it\n  site dist -e                   Encrypt it; only the full link opens it\n  site index.html style.css      Deploy loose files at the root\n  cat page.html | site -         Deploy stdin as index.html\n  site dist --spa                Serve index.html for client-side routes\n  site ls                        List your names and deploys\n  site point todo k3m9xq2a       Point a name at an earlier deploy\n  site rm k3m9xq2a               Delete a deploy (or release a name)\n  site key                       Print your key, to use on another machine\n\nSet SITE_KEY to use a key without saving it, and SITE_URL to use another server.\n",
+    "stderr": ""
+  },
+  { "args": ["--spa", "--version"], "code": 0, "stdout": "site 0.4.0\n", "stderr": "" },
+  {
+    "args": ["-h", "--sap"],
+    "code": 0,
+    "stdout": "Static sites, live in one command\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nCommands:\n  ls     List your names and deploys\n  point  Point a name at one of your deploys\n  rm     Delete a deploy or release a name\n  key    Print your key, or save a key from another machine\n  help   Print this message or the help of the given subcommand(s)\n\nArguments:\n  [PATHS]...  A folder, files, or - for stdin\n\nOptions:\n  -n, --name <NAME>  Point this name at the deploy, like todo for todo.site.stoff.dev\n  -e, --encrypt      Encrypt the site on this machine; only the printed link, with its key after #, opens it\n      --spa          Serve index.html for unknown paths without a file extension\n      --no-copy      Leave the clipboard unchanged after deploying\n  -h, --help         Print help\n  -V, --version      Print version\n\nExamples:\n  site dist                      Deploy a folder and print its URL\n  site dist -n todo              Also point todo.site.stoff.dev at it\n  site dist -e                   Encrypt it; only the full link opens it\n  site index.html style.css      Deploy loose files at the root\n  cat page.html | site -         Deploy stdin as index.html\n  site dist --spa                Serve index.html for client-side routes\n  site ls                        List your names and deploys\n  site point todo k3m9xq2a       Point a name at an earlier deploy\n  site rm k3m9xq2a               Delete a deploy (or release a name)\n  site key                       Print your key, to use on another machine\n\nSet SITE_KEY to use a key without saving it, and SITE_URL to use another server.\n",
+    "stderr": ""
+  },
+  {
+    "args": ["--sap", "-h"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--sap' found\n\n  tip: to pass '--sap' as a value, use '-- --sap'\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nFor more information, try '--help'.\n"
+  },
+  { "args": ["-n", "foo", "-n"], "code": 2, "stdout": "", "stderr": "error: a value is required for '--name <NAME>' but none was supplied\n\nFor more information, try '--help'.\n" },
+  {
+    "args": ["--ls"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--ls' found\n\n  tip: to pass '--ls' as a value, use '-- --ls'\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--point"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--point' found\n\n  tip: to pass '--point' as a value, use '-- --point'\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["-l"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '-l' found\n\n  tip: to pass '-l' as a value, use '-- -l'\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--h"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--h' found\n\n  tip: a similar argument exists: '--help'\n\nUsage: site --help [PATHS]...\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--he"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--he' found\n\n  tip: a similar argument exists: '--help'\n\nUsage: site --help [PATHS]...\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--hel"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--hel' found\n\n  tip: a similar argument exists: '--help'\n\nUsage: site --help [PATHS]...\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--v"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--v' found\n\n  tip: a similar argument exists: '--version'\n\nUsage: site --version [PATHS]...\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--ver"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--ver' found\n\n  tip: a similar argument exists: '--version'\n\nUsage: site --version [PATHS]...\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--sp"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--sp' found\n\n  tip: a similar argument exists: '--spa'\n\nUsage: site --spa [PATHS]...\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--no"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--no' found\n\n  tip: a similar argument exists: '--no-copy'\n\nUsage: site --no-copy [PATHS]...\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--en"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--en' found\n\n  tip: a similar argument exists: '--encrypt'\n\nUsage: site --encrypt [PATHS]...\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--encrypt-it"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--encrypt-it' found\n\n  tip: a similar argument exists: '--encrypt'\n\nUsage: site --encrypt [PATHS]...\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--na"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--na' found\n\n  tip: a similar argument exists: '--name'\n\nUsage: site --name <NAME> [PATHS]...\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--spam"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--spam' found\n\n  tip: a similar argument exists: '--spa'\n\nUsage: site --spa [PATHS]...\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--sp-a"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--sp-a' found\n\n  tip: a similar argument exists: '--spa'\n\nUsage: site --spa [PATHS]...\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--spa", "--nam"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--nam' found\n\n  tip: a similar argument exists: '--name'\n\nUsage: site --spa --name <NAME> [PATHS]...\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["-e", "--nam"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--nam' found\n\n  tip: a similar argument exists: '--name'\n\nUsage: site --encrypt --name <NAME> [PATHS]...\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--name", "x", "--spaa"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--spaa' found\n\n  tip: a similar argument exists: '--spa'\n\nUsage: site --name <NAME> --spa [PATHS]...\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["-e", "--encrypt=x"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected value 'x' for '--encrypt' found; no more were expected\n\nUsage: site <PATHS|--name <NAME>|--encrypt|--spa|--no-copy>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--spa", "--encrypt=x"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected value 'x' for '--encrypt' found; no more were expected\n\nUsage: site <PATHS|--name <NAME>|--encrypt|--spa|--no-copy>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["-e", "--spa", "--no-copy=1"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected value '1' for '--no-copy' found; no more were expected\n\nUsage: site <PATHS|--name <NAME>|--encrypt|--spa|--no-copy>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--no-copy", "-e", "--spa", "-n", "x", "--sap"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--sap' found\n\n  tip: to pass '--sap' as a value, use '-- --sap'\n\nUsage: site --no-copy --encrypt --spa --name <NAME> [PATHS]...\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--no-copy", "-e", "--spa", "-n", "x", "--spaa"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--spaa' found\n\n  tip: a similar argument exists: '--spa'\n\nUsage: site --no-copy --encrypt --spa --name <NAME> [PATHS]...\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--no-copy", "-e", "--spa", "-n", "x", "--help=1"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected value '1' for '--help' found; no more were expected\n\nUsage: site --help <PATHS|--name <NAME>|--encrypt|--spa|--no-copy>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--spa", "--spa", "-h"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: the argument '--spa' cannot be used multiple times\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["-h", "--spa", "--spa"],
+    "code": 0,
+    "stdout": "Static sites, live in one command\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nCommands:\n  ls     List your names and deploys\n  point  Point a name at one of your deploys\n  rm     Delete a deploy or release a name\n  key    Print your key, or save a key from another machine\n  help   Print this message or the help of the given subcommand(s)\n\nArguments:\n  [PATHS]...  A folder, files, or - for stdin\n\nOptions:\n  -n, --name <NAME>  Point this name at the deploy, like todo for todo.site.stoff.dev\n  -e, --encrypt      Encrypt the site on this machine; only the printed link, with its key after #, opens it\n      --spa          Serve index.html for unknown paths without a file extension\n      --no-copy      Leave the clipboard unchanged after deploying\n  -h, --help         Print help\n  -V, --version      Print version\n\nExamples:\n  site dist                      Deploy a folder and print its URL\n  site dist -n todo              Also point todo.site.stoff.dev at it\n  site dist -e                   Encrypt it; only the full link opens it\n  site index.html style.css      Deploy loose files at the root\n  cat page.html | site -         Deploy stdin as index.html\n  site dist --spa                Serve index.html for client-side routes\n  site ls                        List your names and deploys\n  site point todo k3m9xq2a       Point a name at an earlier deploy\n  site rm k3m9xq2a               Delete a deploy (or release a name)\n  site key                       Print your key, to use on another machine\n\nSet SITE_KEY to use a key without saving it, and SITE_URL to use another server.\n",
+    "stderr": ""
+  },
+  {
+    "args": ["-e=x"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '-=' found\n\n  tip: to pass '-=' as a value, use '-- -='\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["-h=x"],
+    "code": 0,
+    "stdout": "Static sites, live in one command\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nCommands:\n  ls     List your names and deploys\n  point  Point a name at one of your deploys\n  rm     Delete a deploy or release a name\n  key    Print your key, or save a key from another machine\n  help   Print this message or the help of the given subcommand(s)\n\nArguments:\n  [PATHS]...  A folder, files, or - for stdin\n\nOptions:\n  -n, --name <NAME>  Point this name at the deploy, like todo for todo.site.stoff.dev\n  -e, --encrypt      Encrypt the site on this machine; only the printed link, with its key after #, opens it\n      --spa          Serve index.html for unknown paths without a file extension\n      --no-copy      Leave the clipboard unchanged after deploying\n  -h, --help         Print help\n  -V, --version      Print version\n\nExamples:\n  site dist                      Deploy a folder and print its URL\n  site dist -n todo              Also point todo.site.stoff.dev at it\n  site dist -e                   Encrypt it; only the full link opens it\n  site index.html style.css      Deploy loose files at the root\n  cat page.html | site -         Deploy stdin as index.html\n  site dist --spa                Serve index.html for client-side routes\n  site ls                        List your names and deploys\n  site point todo k3m9xq2a       Point a name at an earlier deploy\n  site rm k3m9xq2a               Delete a deploy (or release a name)\n  site key                       Print your key, to use on another machine\n\nSet SITE_KEY to use a key without saving it, and SITE_URL to use another server.\n",
+    "stderr": ""
+  },
+  { "args": ["-V=x"], "code": 0, "stdout": "site 0.4.0\n", "stderr": "" },
+  { "args": ["-n-", "nope"], "code": 1, "stdout": "", "stderr": "site: could not find nope: No such file or directory (os error 2)\n" },
+  { "args": ["-en=foo", "nope"], "code": 1, "stdout": "", "stderr": "site: could not find nope: No such file or directory (os error 2)\n" },
+  {
+    "args": ["-e-"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--' found\n\n  tip: to pass '--' as a value, use '-- --'\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nFor more information, try '--help'.\n"
+  },
+  { "args": ["-nh"], "code": 1, "stdout": "", "stderr": "site: give a folder or files to deploy, like: site dist\n" },
+  {
+    "args": ["-hn"],
+    "code": 0,
+    "stdout": "Static sites, live in one command\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nCommands:\n  ls     List your names and deploys\n  point  Point a name at one of your deploys\n  rm     Delete a deploy or release a name\n  key    Print your key, or save a key from another machine\n  help   Print this message or the help of the given subcommand(s)\n\nArguments:\n  [PATHS]...  A folder, files, or - for stdin\n\nOptions:\n  -n, --name <NAME>  Point this name at the deploy, like todo for todo.site.stoff.dev\n  -e, --encrypt      Encrypt the site on this machine; only the printed link, with its key after #, opens it\n      --spa          Serve index.html for unknown paths without a file extension\n      --no-copy      Leave the clipboard unchanged after deploying\n  -h, --help         Print help\n  -V, --version      Print version\n\nExamples:\n  site dist                      Deploy a folder and print its URL\n  site dist -n todo              Also point todo.site.stoff.dev at it\n  site dist -e                   Encrypt it; only the full link opens it\n  site index.html style.css      Deploy loose files at the root\n  cat page.html | site -         Deploy stdin as index.html\n  site dist --spa                Serve index.html for client-side routes\n  site ls                        List your names and deploys\n  site point todo k3m9xq2a       Point a name at an earlier deploy\n  site rm k3m9xq2a               Delete a deploy (or release a name)\n  site key                       Print your key, to use on another machine\n\nSet SITE_KEY to use a key without saving it, and SITE_URL to use another server.\n",
+    "stderr": ""
+  },
+  {
+    "args": ["-he=x"],
+    "code": 0,
+    "stdout": "Static sites, live in one command\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nCommands:\n  ls     List your names and deploys\n  point  Point a name at one of your deploys\n  rm     Delete a deploy or release a name\n  key    Print your key, or save a key from another machine\n  help   Print this message or the help of the given subcommand(s)\n\nArguments:\n  [PATHS]...  A folder, files, or - for stdin\n\nOptions:\n  -n, --name <NAME>  Point this name at the deploy, like todo for todo.site.stoff.dev\n  -e, --encrypt      Encrypt the site on this machine; only the printed link, with its key after #, opens it\n      --spa          Serve index.html for unknown paths without a file extension\n      --no-copy      Leave the clipboard unchanged after deploying\n  -h, --help         Print help\n  -V, --version      Print version\n\nExamples:\n  site dist                      Deploy a folder and print its URL\n  site dist -n todo              Also point todo.site.stoff.dev at it\n  site dist -e                   Encrypt it; only the full link opens it\n  site index.html style.css      Deploy loose files at the root\n  cat page.html | site -         Deploy stdin as index.html\n  site dist --spa                Serve index.html for client-side routes\n  site ls                        List your names and deploys\n  site point todo k3m9xq2a       Point a name at an earlier deploy\n  site rm k3m9xq2a               Delete a deploy (or release a name)\n  site key                       Print your key, to use on another machine\n\nSet SITE_KEY to use a key without saving it, and SITE_URL to use another server.\n",
+    "stderr": ""
+  },
+  { "args": ["-Vx"], "code": 0, "stdout": "site 0.4.0\n", "stderr": "" },
+  {
+    "args": ["-xV"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '-x' found\n\n  tip: to pass '-x' as a value, use '-- -x'\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["ls", "--hlep"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--hlep' found\n\n  tip: a similar argument exists: '--help'\n\nUsage: site ls --help\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["ls", "--help=x"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected value 'x' for '--help' found; no more were expected\n\nUsage: site ls --help\n\nFor more information, try '--help'.\n"
+  },
+  { "args": ["ls", "-h=x"], "code": 0, "stdout": "List your names and deploys\n\nUsage: site ls\n\nOptions:\n  -h, --help  Print help\n", "stderr": "" },
+  { "args": ["ls", "-hx"], "code": 0, "stdout": "List your names and deploys\n\nUsage: site ls\n\nOptions:\n  -h, --help  Print help\n", "stderr": "" },
+  { "args": ["ls", "-xh"], "code": 2, "stdout": "", "stderr": "error: unexpected argument '-x' found\n\nUsage: site ls\n\nFor more information, try '--help'.\n" },
+  {
+    "args": ["point", "--nam"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--nam' found\n\n  tip: to pass '--nam' as a value, use '-- --nam'\n\nUsage: site point <NAME> <ID>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["point", "--hel"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--hel' found\n\n  tip: a similar argument exists: '--help'\n\nUsage: site point --help <NAME> <ID>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["point", "a", "--hlep"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--hlep' found\n\n  tip: a similar argument exists: '--help'\n\nUsage: site point --help <NAME> <ID>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["point", "a", "b", "--hlep"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--hlep' found\n\n  tip: a similar argument exists: '--help'\n\nUsage: site point --help <NAME> <ID>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["rm", "--hlep"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--hlep' found\n\n  tip: a similar argument exists: '--help'\n\nUsage: site rm --help <TARGET>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["rm", "x", "--hlep"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--hlep' found\n\n  tip: a similar argument exists: '--help'\n\nUsage: site rm --help <TARGET>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["point", "-h", "x", "y", "z"],
+    "code": 0,
+    "stdout": "Point a name at one of your deploys\n\nUsage: site point <NAME> <ID>\n\nArguments:\n  <NAME>  Name, like todo\n  <ID>    Deploy id, like k3m9xq2a\n\nOptions:\n  -h, --help  Print help\n",
+    "stderr": ""
+  },
+  { "args": ["point", "x", "y", "z", "-h"], "code": 2, "stdout": "", "stderr": "error: unexpected argument 'z' found\n\nUsage: site point <NAME> <ID>\n\nFor more information, try '--help'.\n" },
+  {
+    "args": ["point", "x", "-h"],
+    "code": 0,
+    "stdout": "Point a name at one of your deploys\n\nUsage: site point <NAME> <ID>\n\nArguments:\n  <NAME>  Name, like todo\n  <ID>    Deploy id, like k3m9xq2a\n\nOptions:\n  -h, --help  Print help\n",
+    "stderr": ""
+  },
+  {
+    "args": ["key", "x", "--hlep"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--hlep' found\n\n  tip: a similar argument exists: '--help'\n\nUsage: site key --help <KEY>\n\nFor more information, try '--help'.\n"
+  },
+  { "args": ["help", "help", "help"], "code": 2, "stdout": "", "stderr": "error: unrecognized subcommand 'help'\n\nUsage: site help [COMMAND]...\n" },
+  { "args": ["help", "ls", "x", "y"], "code": 2, "stdout": "", "stderr": "error: unrecognized subcommand 'x'\n\nUsage: site ls\n\nFor more information, try '--help'.\n" },
+  { "args": ["help", "point", "nope"], "code": 2, "stdout": "", "stderr": "error: unrecognized subcommand 'nope'\n\nUsage: site point <NAME> <ID>\n\nFor more information, try '--help'.\n" },
+  { "args": ["help", "help", "ls"], "code": 2, "stdout": "", "stderr": "error: unrecognized subcommand 'ls'\n\nUsage: site help [COMMAND]...\n" },
+  {
+    "args": ["help", "--", "ls"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unrecognized subcommand '--'\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["help", "-"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unrecognized subcommand '-'\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nFor more information, try '--help'.\n"
+  },
+  { "args": ["help", ""], "code": 2, "stdout": "", "stderr": "error: unrecognized subcommand ''\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nFor more information, try '--help'.\n" },
+  { "args": ["help", "ls", ""], "code": 2, "stdout": "", "stderr": "error: unrecognized subcommand ''\n\nUsage: site ls\n\nFor more information, try '--help'.\n" },
+  { "args": ["ls", "--spa", "--spa"], "code": 2, "stdout": "", "stderr": "error: unexpected argument '--spa' found\n\nUsage: site ls\n\nFor more information, try '--help'.\n" },
+  {
+    "args": ["point", "--spa"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--spa' found\n\n  tip: to pass '--spa' as a value, use '-- --spa'\n\nUsage: site point <NAME> <ID>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["key", "--encrypt"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--encrypt' found\n\n  tip: to pass '--encrypt' as a value, use '-- --encrypt'\n\nUsage: site key [KEY]\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["rm", "-e"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '-e' found\n\n  tip: to pass '-e' as a value, use '-- -e'\n\nUsage: site rm <TARGET>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["rm", "--e"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--e' found\n\n  tip: a similar argument exists: '--help'\n\nUsage: site rm --help <TARGET>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["key", "--e"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--e' found\n\n  tip: a similar argument exists: '--help'\n\nUsage: site key --help [KEY]\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["key", "--h"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--h' found\n\n  tip: a similar argument exists: '--help'\n\nUsage: site key --help [KEY]\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["ls", "--h"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--h' found\n\n  tip: a similar argument exists: '--help'\n\nUsage: site ls --help\n\nFor more information, try '--help'.\n"
+  },
+  { "args": ["ls", "--version"], "code": 2, "stdout": "", "stderr": "error: unexpected argument '--version' found\n\nUsage: site ls\n\nFor more information, try '--help'.\n" },
+  { "args": ["ls", "-V"], "code": 2, "stdout": "", "stderr": "error: unexpected argument '-V' found\n\nUsage: site ls\n\nFor more information, try '--help'.\n" },
+  { "args": ["--version", "ls"], "code": 0, "stdout": "site 0.4.0\n", "stderr": "" },
+  { "args": ["-V", "ls"], "code": 0, "stdout": "site 0.4.0\n", "stderr": "" },
+  {
+    "args": ["--name", "x", "--name=y"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: the argument '--name <NAME>' cannot be used multiple times\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--name=a", "-nb"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: the argument '--name <NAME>' cannot be used multiple times\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--spa", "-e", "--encrpyt"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--encrpyt' found\n\n  tip: a similar argument exists: '--encrypt'\n\nUsage: site --spa --encrypt [PATHS]...\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["-n", "x", "--encrpyt"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--encrpyt' found\n\n  tip: a similar argument exists: '--encrypt'\n\nUsage: site --name <NAME> --encrypt [PATHS]...\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--encrpyt", "-n", "x"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--encrpyt' found\n\n  tip: a similar argument exists: '--encrypt'\n\nUsage: site --encrypt [PATHS]...\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--no-copy", "--nam"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--nam' found\n\n  tip: a similar argument exists: '--name'\n\nUsage: site --no-copy --name <NAME> [PATHS]...\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--no-copy", "--spa", "--encrypt", "--name", "x", "--nam"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--nam' found\n\n  tip: a similar argument exists: '--name'\n\nUsage: site --no-copy --spa --encrypt --name <NAME> [PATHS]...\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["-e", "--n"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--n' found\n\n  tip: a similar argument exists: '--name'\n\nUsage: site --encrypt --name <NAME> [PATHS]...\n\nFor more information, try '--help'.\n"
+  },
+  { "args": ["--", "--"], "code": 1, "stdout": "", "stderr": "site: could not find --: No such file or directory (os error 2)\n" },
+  { "args": ["--", "-h"], "code": 1, "stdout": "", "stderr": "site: could not find -h: No such file or directory (os error 2)\n" },
+  { "args": ["nope", "--", "-h"], "code": 1, "stdout": "", "stderr": "site: could not find nope: No such file or directory (os error 2)\n" },
+  { "args": ["-n", "x", "--", "-n"], "code": 1, "stdout": "", "stderr": "site: could not find -n: No such file or directory (os error 2)\n" },
+  {
+    "args": ["--no-copy", "--spaa"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--spaa' found\n\n  tip: a similar argument exists: '--spa'\n\nUsage: site --no-copy --spa [PATHS]...\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--spa", "--no-cpy"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--no-cpy' found\n\n  tip: a similar argument exists: '--no-copy'\n\nUsage: site --spa --no-copy [PATHS]...\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--spa", "-n", "x", "--hlep"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--hlep' found\n\n  tip: a similar argument exists: '--help'\n\nUsage: site --spa --name <NAME> --help [PATHS]...\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--help", "x"],
+    "code": 0,
+    "stdout": "Static sites, live in one command\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nCommands:\n  ls     List your names and deploys\n  point  Point a name at one of your deploys\n  rm     Delete a deploy or release a name\n  key    Print your key, or save a key from another machine\n  help   Print this message or the help of the given subcommand(s)\n\nArguments:\n  [PATHS]...  A folder, files, or - for stdin\n\nOptions:\n  -n, --name <NAME>  Point this name at the deploy, like todo for todo.site.stoff.dev\n  -e, --encrypt      Encrypt the site on this machine; only the printed link, with its key after #, opens it\n      --spa          Serve index.html for unknown paths without a file extension\n      --no-copy      Leave the clipboard unchanged after deploying\n  -h, --help         Print help\n  -V, --version      Print version\n\nExamples:\n  site dist                      Deploy a folder and print its URL\n  site dist -n todo              Also point todo.site.stoff.dev at it\n  site dist -e                   Encrypt it; only the full link opens it\n  site index.html style.css      Deploy loose files at the root\n  cat page.html | site -         Deploy stdin as index.html\n  site dist --spa                Serve index.html for client-side routes\n  site ls                        List your names and deploys\n  site point todo k3m9xq2a       Point a name at an earlier deploy\n  site rm k3m9xq2a               Delete a deploy (or release a name)\n  site key                       Print your key, to use on another machine\n\nSet SITE_KEY to use a key without saving it, and SITE_URL to use another server.\n",
+    "stderr": ""
+  },
+  {
+    "args": ["-n", "x", "-h"],
+    "code": 0,
+    "stdout": "Static sites, live in one command\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nCommands:\n  ls     List your names and deploys\n  point  Point a name at one of your deploys\n  rm     Delete a deploy or release a name\n  key    Print your key, or save a key from another machine\n  help   Print this message or the help of the given subcommand(s)\n\nArguments:\n  [PATHS]...  A folder, files, or - for stdin\n\nOptions:\n  -n, --name <NAME>  Point this name at the deploy, like todo for todo.site.stoff.dev\n  -e, --encrypt      Encrypt the site on this machine; only the printed link, with its key after #, opens it\n      --spa          Serve index.html for unknown paths without a file extension\n      --no-copy      Leave the clipboard unchanged after deploying\n  -h, --help         Print help\n  -V, --version      Print version\n\nExamples:\n  site dist                      Deploy a folder and print its URL\n  site dist -n todo              Also point todo.site.stoff.dev at it\n  site dist -e                   Encrypt it; only the full link opens it\n  site index.html style.css      Deploy loose files at the root\n  cat page.html | site -         Deploy stdin as index.html\n  site dist --spa                Serve index.html for client-side routes\n  site ls                        List your names and deploys\n  site point todo k3m9xq2a       Point a name at an earlier deploy\n  site rm k3m9xq2a               Delete a deploy (or release a name)\n  site key                       Print your key, to use on another machine\n\nSet SITE_KEY to use a key without saving it, and SITE_URL to use another server.\n",
+    "stderr": ""
+  },
+  { "args": ["-n", "-h"], "code": 2, "stdout": "", "stderr": "error: a value is required for '--name <NAME>' but none was supplied\n\nFor more information, try '--help'.\n" },
+  { "args": ["-n", "-V"], "code": 2, "stdout": "", "stderr": "error: a value is required for '--name <NAME>' but none was supplied\n\nFor more information, try '--help'.\n" },
+  { "args": ["--name", "-h"], "code": 2, "stdout": "", "stderr": "error: a value is required for '--name <NAME>' but none was supplied\n\nFor more information, try '--help'.\n" },
+  { "args": ["-n", "-e"], "code": 2, "stdout": "", "stderr": "error: a value is required for '--name <NAME>' but none was supplied\n\nFor more information, try '--help'.\n" },
+  { "args": ["-n", "-ee"], "code": 2, "stdout": "", "stderr": "error: a value is required for '--name <NAME>' but none was supplied\n\nFor more information, try '--help'.\n" },
+  {
+    "args": ["-n", "--x"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--x' found\n\n  tip: to pass '--x' as a value, use '-- --x'\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["-n", "--=x"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--' found\n\n  tip: to pass '--' as a value, use '-- --'\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--=x"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--' found\n\n  tip: to pass '--' as a value, use '-- --'\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["---"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '---' found\n\n  tip: a similar argument exists: '--no-copy'\n\nUsage: site --no-copy [PATHS]...\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["---spa"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '---spa' found\n\n  tip: a similar argument exists: '--spa'\n\nUsage: site --spa [PATHS]...\n\nFor more information, try '--help'.\n"
+  },
+  { "args": ["--name", "help"], "code": 1, "stdout": "", "stderr": "site: give a folder or files to deploy, like: site dist\n" },
+  { "args": ["-n", "ls", "x"], "code": 1, "stdout": "", "stderr": "site: could not find x: No such file or directory (os error 2)\n" },
+  {
+    "args": ["nope", "--spaa"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--spaa' found\n\n  tip: a similar argument exists: '--spa'\n\nUsage: site --spa <PATHS>...\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["nope", "--spa=x"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected value 'x' for '--spa' found; no more were expected\n\nUsage: site --spa [PATHS]...\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["point", "a", "--help=x"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected value 'x' for '--help' found; no more were expected\n\nUsage: site point --help <NAME> <ID>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["key", "x", "--help=y"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected value 'y' for '--help' found; no more were expected\n\nUsage: site key --help [KEY]\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["key", "--help=y"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected value 'y' for '--help' found; no more were expected\n\nUsage: site key --help [KEY]\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["rm", "x", "--help=y"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected value 'y' for '--help' found; no more were expected\n\nUsage: site rm --help <TARGET>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["point", "--help=x"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected value 'x' for '--help' found; no more were expected\n\nUsage: site point --help <NAME> <ID>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["key", "x", "-y"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '-y' found\n\n  tip: to pass '-y' as a value, use '-- -y'\n\nUsage: site key [KEY]\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["key", "x", "--zz"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--zz' found\n\n  tip: to pass '--zz' as a value, use '-- --zz'\n\nUsage: site key <KEY>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--spa", "-x"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '-x' found\n\n  tip: to pass '-x' as a value, use '-- -x'\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--spa", "--zz"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--zz' found\n\n  tip: to pass '--zz' as a value, use '-- --zz'\n\nUsage: site --spa [PATHS]...\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--spa", "--version=1"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected value '1' for '--version' found; no more were expected\n\nUsage: site --version <PATHS|--name <NAME>|--encrypt|--spa|--no-copy>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--version=1"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected value '1' for '--version' found; no more were expected\n\nUsage: site --version [PATHS]...\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["-n", "a", "-n", "b", "--sap"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--sap' found\n\n  tip: to pass '--sap' as a value, use '-- --sap'\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["-1"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '-1' found\n\n  tip: to pass '-1' as a value, use '-- -1'\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nFor more information, try '--help'.\n"
+  },
+  { "args": ["", "x"], "code": 1, "stdout": "", "stderr": "site: could not find : No such file or directory (os error 2)\n" },
+  {
+    "args": ["point", "a", "b", "-c"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '-c' found\n\n  tip: to pass '-c' as a value, use '-- -c'\n\nUsage: site point <NAME> <ID>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["nope", "--zz"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--zz' found\n\n  tip: to pass '--zz' as a value, use '-- --zz'\n\nUsage: site <PATHS>...\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["nope", "x", "--hlep"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--hlep' found\n\n  tip: a similar argument exists: '--help'\n\nUsage: site --help <PATHS>...\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["-n", "x", "nope", "--nam"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--nam' found\n\n  tip: a similar argument exists: '--name'\n\nUsage: site --name <NAME> <PATHS>...\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--spa", "nope", "--spaa"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--spaa' found\n\n  tip: a similar argument exists: '--spa'\n\nUsage: site --spa <PATHS>...\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["point", "a", "--zz"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--zz' found\n\n  tip: to pass '--zz' as a value, use '-- --zz'\n\nUsage: site point <NAME> <ID>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["point", "a", "b", "--zz"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--zz' found\n\n  tip: to pass '--zz' as a value, use '-- --zz'\n\nUsage: site point <NAME> <ID>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["rm", "x", "--zz"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--zz' found\n\n  tip: to pass '--zz' as a value, use '-- --zz'\n\nUsage: site rm <TARGET>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["key", "--zz"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected argument '--zz' found\n\n  tip: to pass '--zz' as a value, use '-- --zz'\n\nUsage: site key [KEY]\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["--name=x", "--version=2"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected value '2' for '--version' found; no more were expected\n\nUsage: site --version <PATHS|--name <NAME>|--encrypt|--spa|--no-copy>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["-e", "nope", "--no-copy=2"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected value '2' for '--no-copy' found; no more were expected\n\nUsage: site <PATHS|--name <NAME>|--encrypt|--spa|--no-copy>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["point", "a", "b", "--help=x"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected value 'x' for '--help' found; no more were expected\n\nUsage: site point --help <NAME|ID>\n\nFor more information, try '--help'.\n"
+  },
+  { "args": ["key", "x", "y", "--help=z"], "code": 2, "stdout": "", "stderr": "error: unexpected argument 'y' found\n\nUsage: site key [KEY]\n\nFor more information, try '--help'.\n" },
+  {
+    "args": ["-n", "a", "nope", "--spa=x"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected value 'x' for '--spa' found; no more were expected\n\nUsage: site <PATHS|--name <NAME>|--encrypt|--spa|--no-copy>\n\nFor more information, try '--help'.\n"
+  },
+  {
+    "args": ["nope", "-n", "a", "--spa=x"],
+    "code": 2,
+    "stdout": "",
+    "stderr": "error: unexpected value 'x' for '--spa' found; no more were expected\n\nUsage: site <PATHS|--name <NAME>|--encrypt|--spa|--no-copy>\n\nFor more information, try '--help'.\n"
+  },
+  { "args": ["help", "ls", "--", "x"], "code": 2, "stdout": "", "stderr": "error: unrecognized subcommand '--'\n\nUsage: site ls\n\nFor more information, try '--help'.\n" },
+  { "args": ["--name", "a", "--name"], "code": 2, "stdout": "", "stderr": "error: a value is required for '--name <NAME>' but none was supplied\n\nFor more information, try '--help'.\n" },
+  {
+    "args": ["-hx"],
+    "code": 0,
+    "stdout": "Static sites, live in one command\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nCommands:\n  ls     List your names and deploys\n  point  Point a name at one of your deploys\n  rm     Delete a deploy or release a name\n  key    Print your key, or save a key from another machine\n  help   Print this message or the help of the given subcommand(s)\n\nArguments:\n  [PATHS]...  A folder, files, or - for stdin\n\nOptions:\n  -n, --name <NAME>  Point this name at the deploy, like todo for todo.site.stoff.dev\n  -e, --encrypt      Encrypt the site on this machine; only the printed link, with its key after #, opens it\n      --spa          Serve index.html for unknown paths without a file extension\n      --no-copy      Leave the clipboard unchanged after deploying\n  -h, --help         Print help\n  -V, --version      Print version\n\nExamples:\n  site dist                      Deploy a folder and print its URL\n  site dist -n todo              Also point todo.site.stoff.dev at it\n  site dist -e                   Encrypt it; only the full link opens it\n  site index.html style.css      Deploy loose files at the root\n  cat page.html | site -         Deploy stdin as index.html\n  site dist --spa                Serve index.html for client-side routes\n  site ls                        List your names and deploys\n  site point todo k3m9xq2a       Point a name at an earlier deploy\n  site rm k3m9xq2a               Delete a deploy (or release a name)\n  site key                       Print your key, to use on another machine\n\nSet SITE_KEY to use a key without saving it, and SITE_URL to use another server.\n",
+    "stderr": ""
+  },
+  {
+    "args": ["--spa", "-hx"],
+    "code": 0,
+    "stdout": "Static sites, live in one command\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nCommands:\n  ls     List your names and deploys\n  point  Point a name at one of your deploys\n  rm     Delete a deploy or release a name\n  key    Print your key, or save a key from another machine\n  help   Print this message or the help of the given subcommand(s)\n\nArguments:\n  [PATHS]...  A folder, files, or - for stdin\n\nOptions:\n  -n, --name <NAME>  Point this name at the deploy, like todo for todo.site.stoff.dev\n  -e, --encrypt      Encrypt the site on this machine; only the printed link, with its key after #, opens it\n      --spa          Serve index.html for unknown paths without a file extension\n      --no-copy      Leave the clipboard unchanged after deploying\n  -h, --help         Print help\n  -V, --version      Print version\n\nExamples:\n  site dist                      Deploy a folder and print its URL\n  site dist -n todo              Also point todo.site.stoff.dev at it\n  site dist -e                   Encrypt it; only the full link opens it\n  site index.html style.css      Deploy loose files at the root\n  cat page.html | site -         Deploy stdin as index.html\n  site dist --spa                Serve index.html for client-side routes\n  site ls                        List your names and deploys\n  site point todo k3m9xq2a       Point a name at an earlier deploy\n  site rm k3m9xq2a               Delete a deploy (or release a name)\n  site key                       Print your key, to use on another machine\n\nSet SITE_KEY to use a key without saving it, and SITE_URL to use another server.\n",
+    "stderr": ""
+  },
+  { "args": ["-nn", "nope"], "code": 1, "stdout": "", "stderr": "site: could not find nope: No such file or directory (os error 2)\n" },
+  { "args": ["--no-copy", "-n"], "code": 2, "stdout": "", "stderr": "error: a value is required for '--name <NAME>' but none was supplied\n\nFor more information, try '--help'.\n" },
+  {
+    "args": ["--help", "--help"],
+    "code": 0,
+    "stdout": "Static sites, live in one command\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nCommands:\n  ls     List your names and deploys\n  point  Point a name at one of your deploys\n  rm     Delete a deploy or release a name\n  key    Print your key, or save a key from another machine\n  help   Print this message or the help of the given subcommand(s)\n\nArguments:\n  [PATHS]...  A folder, files, or - for stdin\n\nOptions:\n  -n, --name <NAME>  Point this name at the deploy, like todo for todo.site.stoff.dev\n  -e, --encrypt      Encrypt the site on this machine; only the printed link, with its key after #, opens it\n      --spa          Serve index.html for unknown paths without a file extension\n      --no-copy      Leave the clipboard unchanged after deploying\n  -h, --help         Print help\n  -V, --version      Print version\n\nExamples:\n  site dist                      Deploy a folder and print its URL\n  site dist -n todo              Also point todo.site.stoff.dev at it\n  site dist -e                   Encrypt it; only the full link opens it\n  site index.html style.css      Deploy loose files at the root\n  cat page.html | site -         Deploy stdin as index.html\n  site dist --spa                Serve index.html for client-side routes\n  site ls                        List your names and deploys\n  site point todo k3m9xq2a       Point a name at an earlier deploy\n  site rm k3m9xq2a               Delete a deploy (or release a name)\n  site key                       Print your key, to use on another machine\n\nSet SITE_KEY to use a key without saving it, and SITE_URL to use another server.\n",
+    "stderr": ""
+  },
+  {
+    "args": ["-h", "-h"],
+    "code": 0,
+    "stdout": "Static sites, live in one command\n\nUsage: site [OPTIONS] [PATHS]...\n       site <COMMAND>\n\nCommands:\n  ls     List your names and deploys\n  point  Point a name at one of your deploys\n  rm     Delete a deploy or release a name\n  key    Print your key, or save a key from another machine\n  help   Print this message or the help of the given subcommand(s)\n\nArguments:\n  [PATHS]...  A folder, files, or - for stdin\n\nOptions:\n  -n, --name <NAME>  Point this name at the deploy, like todo for todo.site.stoff.dev\n  -e, --encrypt      Encrypt the site on this machine; only the printed link, with its key after #, opens it\n      --spa          Serve index.html for unknown paths without a file extension\n      --no-copy      Leave the clipboard unchanged after deploying\n  -h, --help         Print help\n  -V, --version      Print version\n\nExamples:\n  site dist                      Deploy a folder and print its URL\n  site dist -n todo              Also point todo.site.stoff.dev at it\n  site dist -e                   Encrypt it; only the full link opens it\n  site index.html style.css      Deploy loose files at the root\n  cat page.html | site -         Deploy stdin as index.html\n  site dist --spa                Serve index.html for client-side routes\n  site ls                        List your names and deploys\n  site point todo k3m9xq2a       Point a name at an earlier deploy\n  site rm k3m9xq2a               Delete a deploy (or release a name)\n  site key                       Print your key, to use on another machine\n\nSet SITE_KEY to use a key without saving it, and SITE_URL to use another server.\n",
+    "stderr": ""
+  }
+]
