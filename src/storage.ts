@@ -230,11 +230,11 @@ export async function readPointer(env: Env, name: string): Promise<Pointer | nul
   return record.pointer;
 }
 
-export async function writePointer(env: Env, name: string, owner: string, id: string, previousEtag: string | null): Promise<boolean> {
+export async function writePointer(env: Env, name: string, owner: string, id: string, previousEtag: string | null): Promise<string | null> {
   const written = await env.SITES.put(nameKey(name), crypto.randomUUID(), { customMetadata: { id, owner }, onlyIf: versionCondition(previousEtag) });
-  if (!written) return false;
+  if (!written) return null;
   await env.SITES.put(ownedNameKey(owner, name), "");
-  return true;
+  return written.etag;
 }
 
 export async function releasePointer(env: Env, name: string, owner: string, releasedBy: string, previousEtag: string): Promise<boolean> {

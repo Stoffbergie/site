@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { request as httpRequest } from "node:http";
 import { inject, test } from "vite-plus/test";
 import { faultProxy, type Behavior } from "../helpers/faults";
-import { baseUrl, deploy, folder, keyOf, newHome, runCli, siteDomain, uniqueName, visit, type Run } from "../helpers/site";
+import { apiKeyOf, baseUrl, deploy, folder, keyOf, newHome, runCli, siteDomain, uniqueName, upload, visit, type Run } from "../helpers/site";
 
 const cliPath = inject("cli");
 
@@ -331,4 +331,21 @@ test("a slow link that takes longer than the watchdog to deliver a small upload 
   assert.equal(run.code, 0, run.stderr);
   assert.ok(run.seconds > 70, `the link really was slow: ${run.seconds}s`);
   await assertServes(run.stdout.trim(), files);
+});
+
+test("a name repointed while another update races it never ends on a deleted deploy", { timeout: 120_000 }, async () => {
+  const home = newHome();
+  const key = await apiKeyOf(home);
+  const name = uniqueName("gone");
+  const { label: kept } = await deploy(["--no-copy", "-n", name, folder({ "index.html": "<h1>kept</h1>" })], { home });
+  const authorization = `Bearer ${key}`;
+  const pointAt = (id: string) => fetch(`${baseUrl}/names/${name}`, { method: "PUT", headers: { authorization, "content-type": "application/json" }, body: JSON.stringify({ id }) });
+  for (let round = 0; round < 40; round += 1) {
+    const stored = await upload("/index.html", `<h1>doomed ${round}</h1>`, { authorization, accept: "application/json" });
+    const doomed = (JSON.parse(stored.text) as { id: string }).id;
+    await Promise.all([pointAt(doomed), pointAt(kept), fetch(`${baseUrl}/deploys/${doomed}`, { method: "DELETE", headers: { authorization } })]);
+    const served = await visit(`https://${name}.${siteDomain}`, "/");
+    assert.equal(served.status, 200, `round ${round}: the name serves a deploy that exists`);
+    await pointAt(kept);
+  }
 });

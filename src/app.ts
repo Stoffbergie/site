@@ -9,6 +9,7 @@ import {
   markOwnedDeploy,
   MAX_NAMES,
   namesPointingAt,
+  ownedDeployKey,
   ownedDeploys,
   ownedNames,
   readPointer,
@@ -104,11 +105,9 @@ app.put("/names/:name", async (c) => {
   if (!targetEncrypted && (await holdsEncrypted(c, claim.pointedId))) {
     return text(`${name} holds an encrypted site; point it at a deploy encrypted for ${name}, or release it with site rm ${name} first.\n`, 409);
   }
-  const pointing = await pointName(c, name, caller.owner, id, claim, targetEncrypted);
-  if (pointing === "holds encrypted") {
-    return text(`${name} holds an encrypted site; point it at a deploy encrypted for ${name}, or release it with site rm ${name} first.\n`, 409);
-  }
-  if (pointing === "lost") return text("That name changed while pointing it; try again.\n", 409);
+  const etag = await writePointer(c.env, name, caller.owner, id, claim.etag);
+  if (etag === null) return text("That name changed while pointing it; try again.\n", 409);
+  if (!(await keepsTarget(c, name, caller.owner, id, etag, claim.pointedId))) return text(`You have no deploy ${id}; run site ls to see yours.\n`, 404);
   const headers: Record<string, string> = {};
   if (targetEncrypted) headers["X-Site-Encrypted"] = "true";
   return text(`${siteUrl(name, c.env.SITE_DOMAIN)}\n`, 200, headers);
@@ -139,9 +138,13 @@ app.delete("/deploys/:id", async (c) => {
   if (caller.kind === "key" && owner !== caller.owner) return text("That deploy belongs to another key.\n", 403);
   if (owner) {
     const names = await namesPointingAt(c.env, owner, id);
-    if (names.length > 0) {
-      const listed = names.join(", ");
-      return text(`${listed} still points at ${id}; point it at another deploy or release it with site rm ${names[0]} first.\n`, 409);
+    if (names.length > 0) return stillPointed(names, id);
+    const marker = await c.env.SITES.head(ownedDeployKey(owner, id));
+    await c.env.SITES.delete(ownedDeployKey(owner, id));
+    const racing = await namesPointingAt(c.env, owner, id);
+    if (racing.length > 0) {
+      await c.env.SITES.put(ownedDeployKey(owner, id), "", { customMetadata: marker?.customMetadata });
+      return stillPointed(racing, id);
     }
   }
   await removeDeploy(c.env, id, owner);
@@ -199,7 +202,7 @@ async function deploy(c: AppContext, filename: string): Promise<Response> {
   let marking = Promise.resolve();
   if (owner !== null) marking = markOwnedDeploy(c.env, owner, stored);
   let pointing: Pointing = "pointed";
-  if (name !== undefined && claim !== null && owner !== null) pointing = await pointName(c, name, owner, stored.id, claim, stored.encrypted !== null);
+  if (name !== undefined && claim !== null && owner !== null) pointing = await pointName(c, name, owner, stored.id, claim, stored.encrypted !== null, marking);
   await marking;
   if (pointing === "holds encrypted") {
     await removeDeploy(c.env, stored.id, owner ?? undefined);
@@ -212,16 +215,35 @@ async function deploy(c: AppContext, filename: string): Promise<Response> {
   return deployed(c, stored, name);
 }
 
-async function pointName(c: AppContext, name: string, owner: string, id: string, claim: Claim, encrypted: boolean): Promise<Pointing> {
+async function pointName(c: AppContext, name: string, owner: string, id: string, claim: Claim, encrypted: boolean, marking: Promise<void>): Promise<Pointing> {
   let expected = claim.etag;
+  let previousId = claim.pointedId;
   for (let attempt = 0; attempt < POINTER_ATTEMPTS; attempt += 1) {
-    if (await writePointer(c.env, name, owner, id, expected)) return "pointed";
+    const etag = await writePointer(c.env, name, owner, id, expected);
+    if (etag !== null) {
+      await marking;
+      if (await keepsTarget(c, name, owner, id, etag, previousId)) return "pointed";
+      return "lost";
+    }
     const current = await readPointerRecord(c.env, name);
     if (current === null || current.pointer?.owner !== owner) return "lost";
     if (!encrypted && (await holdsEncrypted(c, current.pointer.id))) return "holds encrypted";
     expected = current.etag;
+    previousId = current.pointer.id;
   }
   return "lost";
+}
+
+async function keepsTarget(c: AppContext, name: string, owner: string, id: string, etag: string, previousId: string | null): Promise<boolean> {
+  if ((await c.env.SITES.head(ownedDeployKey(owner, id))) !== null) return true;
+  if (previousId === null) await releasePointer(c.env, name, owner, owner, etag);
+  else await writePointer(c.env, name, owner, previousId, etag);
+  return false;
+}
+
+function stillPointed(names: string[], id: string): Response {
+  const listed = names.join(", ");
+  return text(`${listed} still points at ${id}; point it at another deploy or release it with site rm ${names[0]} first.\n`, 409);
 }
 
 async function prepareClaim(c: AppContext, name: string, owner: string): Promise<Claim | Response> {
