@@ -164,3 +164,40 @@ test("a private deploy never builds on a public one, and a public one never buil
     proxy.close();
   }
 });
+
+test("small files served from memory, neighbouring reads and revalidations carry cross-origin headers and carried ETags", async () => {
+  const home = newHome();
+  const files: Record<string, string | Buffer> = { "index.html": "<h1>One</h1>", "a.css": "a{color:red}", "b.js": "console.log(1)", "photo.jpg": randomBytes(50_000) };
+  const root = folder(files);
+  const name = uniqueName("cached");
+  const first = await runCli(["--no-copy", "-n", name, root], { home });
+  assert.equal(first.code, 0, first.stderr);
+  const site = first.stdout.trim();
+  const origin = "https://elsewhere.example";
+  const crossOrigin = (reply: Awaited<ReturnType<typeof visit>>, label: string): void => {
+    assert.equal(reply.headers["access-control-allow-origin"], origin, label);
+    assert.equal(reply.headers["access-control-allow-credentials"], "true", label);
+    assert.equal(reply.headers["cross-origin-resource-policy"], "cross-origin", label);
+    assert.equal(reply.headers["timing-allow-origin"], "*", label);
+  };
+
+  const neighbourRead = await visit(site, "/b.js", { headers: { origin } });
+  assert.equal(neighbourRead.text, files["b.js"]);
+  crossOrigin(neighbourRead, "a cold read of a small file");
+  const fromMemory = await visit(site, "/a.css", { headers: { origin } });
+  assert.equal(fromMemory.text, files["a.css"]);
+  crossOrigin(fromMemory, "a neighbour kept in memory");
+  const again = await visit(site, "/b.js", { headers: { origin } });
+  crossOrigin(again, "a file served from memory");
+  const etag = again.headers.etag ?? "";
+
+  writeFileSync(join(root, "index.html"), "<h1>Two</h1>");
+  const second = await runCli(["--no-copy", "-n", name, root], { home });
+  assert.equal(second.code, 0, second.stderr);
+  const revalidated = await visit(site, "/b.js", { headers: { origin, "if-none-match": `W/${etag}` } });
+  assert.equal(revalidated.status, 304, "an unchanged file keeps its ETag across the redeploy");
+  crossOrigin(revalidated, "a 304");
+  const changed = await visit(site, "/", { headers: { origin } });
+  assert.equal(changed.text, "<h1>Two</h1>");
+  crossOrigin(changed, "a changed page");
+});

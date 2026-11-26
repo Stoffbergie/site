@@ -16,7 +16,7 @@ const MAX_TYPE_LENGTH = 200;
 const ENTRY_TYPE = "application/octet-stream";
 const SALT_PATTERN = /^[A-Za-z0-9_-]{22}$/;
 
-export type PackFile = { path: string; offset: number; length: number; type: string; gzip: boolean; br?: boolean };
+export type PackFile = { path: string; offset: number; length: number; type: string; gzip: boolean; br?: boolean; origin?: string };
 export type Encrypted = { name?: string; linkSalt?: string; contentSalt: string };
 export type PackIndex = { spa: boolean; files: PackFile[]; encrypted?: Encrypted; rules?: SiteRules };
 export type IndexCheck = { index: PackIndex } | { problem: string };
@@ -77,6 +77,7 @@ export function checkIndex(json: Uint8Array, dataLength: number): IndexCheck {
     if (typeof gzip !== "boolean") return { problem: `The pack needs a gzip flag for ${path}.` };
     if (br !== undefined && typeof br !== "boolean") return { problem: `The pack has a bad br flag for ${path}.` };
     if (br === true && gzip) return { problem: `The pack marks ${path} as both gzip and br.` };
+    if ("origin" in file) return { problem: `The pack sets an origin for ${path}; only the Worker writes that.` };
     seen.add(path);
     const checkedFile: PackFile = { path, offset, length: length as number, type, gzip };
     if (br === true) checkedFile.br = true;

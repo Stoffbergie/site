@@ -74,6 +74,7 @@ export async function readCompactPack(env: Env, taker: StreamTaker, bodyLength: 
       const original = source.files[entry.reuse.file];
       if (!original || original.length !== entry.length || encodingOf(original) !== entry.encoding) return STALE;
       addSegment(segments, { kind: "copy", id: entry.reuse.id, offset: source.dataStart + original.offset, length: entry.length });
+      file.origin = original.origin ?? `${entry.reuse.id}-${entry.reuse.file}`;
     } else {
       addSegment(segments, { kind: "body", length: entry.length });
       bodyBytes += entry.length;
