@@ -73,7 +73,7 @@ type Compiled = { redirects: Pattern[]; staticRedirects: Map<string, number[]>; 
 type Found = { rule: RedirectRule; captures: Captures };
 type VisibleFiles = { files: ListedFile[]; byPath: Map<string, number>; numbers: number[] };
 type Directive = { name: string; hasArgument: boolean };
-type Chosen = { name: string; value: string | null };
+type Chosen = { name: string; value: string | null; sent: string | null };
 
 const compiledRules = new WeakMap<SiteRules, Compiled>();
 const visibleFilesOf = new WeakMap<ListedFile[], VisibleFiles>();
@@ -293,7 +293,7 @@ function sameAddress(location: URL, pathname: string, requestUrl: URL): boolean 
 }
 
 /**
- * Applies a site's header rules for a request path to a response's headers, in file order, and returns the lowercased names of the headers the site decided, set or removed. Values for the same name are joined with a comma, `! Name` removes what earlier rules or the host set, fixed headers stay as they are, and on named hosts the host's `Cache-Control` stays unless the site's own asks for no caching. Lines that would take the custom headers past their size budget are skipped.
+ * Applies a site's header rules for a request path to a response's headers, in file order, and returns the lowercased names of the headers it set or removed. Values for the same name are joined with a comma, `! Name` removes what earlier rules or the host set, fixed headers stay as they are, and on named hosts the host's `Cache-Control` stays unless the site's own asks for no caching. Lines that would take the custom headers, with what the host appends to them, past their size budget are skipped.
  */
 export function applyHeaderRules(headers: Headers, rules: SiteRules | undefined, pathname: string, named: boolean): string[] {
   if (rules === undefined || rules.headers.length === 0) return [];
@@ -311,14 +311,19 @@ export function applyHeaderRules(headers: Headers, rules: SiteRules | undefined,
       const earlierSize = sizeOf(earlier);
       if (line.value === undefined) {
         used -= earlierSize;
-        chosen.set(key, { name: line.name, value: null });
+        chosen.set(key, { name: line.name, value: null, sent: null });
         continue;
       }
       const room = MAX_ADDED_HEADER_BYTES - used + earlierSize;
       const value = fill(line.value, captures, encodeHeaderValue, room);
       if (value === null) continue;
-      let entry: Chosen = { name: line.name, value };
-      if (earlier?.value) entry = { name: earlier.name, value: `${earlier.value}, ${value}` };
+      let name = line.name;
+      let joined = value;
+      if (earlier?.value) {
+        name = earlier.name;
+        joined = `${earlier.value}, ${value}`;
+      }
+      const entry: Chosen = { name, value: joined, sent: sentValue(key, joined, named) };
       const size = sizeOf(entry);
       if (size > room) continue;
       used += size - earlierSize;
@@ -326,26 +331,29 @@ export function applyHeaderRules(headers: Headers, rules: SiteRules | undefined,
     }
   }
 
-  let added = 0;
-  for (const [key, { name, value }] of chosen) {
-    if (value === null) {
-      if (key !== "cache-control") headers.delete(name);
+  const decided: string[] = [];
+  for (const [key, { name, value, sent }] of chosen) {
+    if (sent !== null) {
+      headers.set(name, sent);
+      decided.push(key);
       continue;
     }
-    let finalValue: string | null = value;
-    if (key === "cache-control") finalValue = siteCacheControl(value, named);
-    if (finalValue === null) continue;
-    const size = name.length + finalValue.length;
-    if (added + size > MAX_ADDED_HEADER_BYTES) continue;
-    added += size;
-    headers.set(name, finalValue);
+    if (value === null && key !== "cache-control") {
+      headers.delete(name);
+      decided.push(key);
+    }
   }
-  return [...chosen.keys()];
+  return decided;
+}
+
+function sentValue(key: string, value: string, named: boolean): string | null {
+  if (key === "cache-control") return siteCacheControl(value, named);
+  return value;
 }
 
 function sizeOf(entry: Chosen | undefined): number {
-  if (entry === undefined || entry.value === null) return 0;
-  return entry.name.length + entry.value.length;
+  if (entry === undefined || entry.sent === null) return 0;
+  return entry.name.length + entry.sent.length;
 }
 
 function siteCacheControl(value: string, named: boolean): string | null {

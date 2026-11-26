@@ -608,6 +608,20 @@ function pack(index: string, data: string): Buffer {
   return Buffer.concat([Buffer.from("SITEPACK1\n"), length, json, Buffer.from(data)]);
 }
 
+test("what the host appends to a site's Cache-Control counts toward the header budget before the site's other headers", async () => {
+  const lines = ["/*"];
+  for (let number = 0; number < 16; number += 1) lines.push(`  X-Pad-${String(number).padStart(2, "0")}: ${"p".repeat(1980)}`);
+  const cacheControl = `max-age=60, community=${"c".repeat(878)}`;
+  lines.push(`  Cache-Control: ${cacheControl}`, "  Access-Control-Allow-Origin: https://site.example");
+  const { url } = await deploy(["--no-copy", folder({ _headers: lines.join("\n"), "index.html": "home" })]);
+  const reply = await visit(url, "/", { headers: { Origin: "https://reader.example" } });
+  assert.equal(reply.headers["x-pad-15"], "p".repeat(1980));
+  assert.equal(reply.headers["cache-control"], `${cacheControl}, no-transform`);
+  assert.equal(reply.headers["access-control-allow-origin"], "https://reader.example", "the site's header that no longer fits is left to the host");
+  assert.equal(reply.headers["access-control-allow-credentials"], "true");
+  assert.match(reply.headers.vary as string, /\bOrigin\b/, "the host's origin-dependent answer says so in Vary");
+});
+
 test("rules and the navigation rules compose without loops on a public site", async () => {
   const rules = [
     "/about  /new  301",
