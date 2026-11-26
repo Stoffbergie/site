@@ -209,6 +209,8 @@ function exists(listing: Listing, pathname: string): boolean {
   return findVisiblePage(listing, pathname) !== null;
 }
 
+const FALLBACK_PAGES = new Set(["200.html", "404.html"]);
+
 function rewriteTarget(listing: Listing, destination: URL, status: 200 | 404): Target {
   const path = decodePath(destination.pathname);
   if (path === null) return notFoundTarget(listing);
@@ -217,7 +219,7 @@ function rewriteTarget(listing: Listing, destination: URL, status: 200 | 404): T
   if (page !== null && page.kind === "file") return { kind: "file", number: page.number, status };
   if (page === null && status === 200 && collapseSlashes(path) === "/") {
     const root = resolveVisible(listing, "/");
-    if (root.kind === "file" && root.status === 200) return root;
+    if (root.kind === "file" && root.status === 200 && !FALLBACK_PAGES.has(listing.files[root.number].path)) return root;
   }
   return notFoundTarget(listing);
 }

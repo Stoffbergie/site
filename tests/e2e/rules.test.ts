@@ -453,6 +453,11 @@ test("a 200 rewrite to a root without a page is a 404, and serves a lone page wh
   const served = await visit(lone.url, "/legacy");
   assert.equal(served.status, 200);
   assert.equal(served.text, "the only page");
+
+  for (const fallback of ["200.html", "404.html"]) {
+    const onlyFallback = await deploy(["--no-copy", folder({ _redirects: "/legacy  /  200\n", [fallback]: "fallback page", "app.js": "1" })]);
+    assert.equal((await visit(onlyFallback.url, "/legacy")).status, 404, `${fallback} is not a page to rewrite to`);
+  }
 });
 
 test("redirects compare the query and find it only before the fragment", async () => {
