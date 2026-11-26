@@ -1,5 +1,5 @@
 import { fileListPage } from "../pages";
-import { decodePath, isReserved, parseRange, redirectLocation, type ByteRange, type Target } from "../resolve";
+import { decodePath, GENERATED_ICON_PATHS, iconShapeAt, isReserved, parseRange, redirectLocation, type ByteRange, type IconShape, type Target } from "../resolve";
 import { applyHeaderRules, checkRules, isConfigFile, route, type SiteRules } from "../rules";
 import { CHUNK_SIZE, chunkCount, fetchEntry, fetchMeta, NotPrivate, openChunk, openDeploy, readKey, SEALED_CHUNK_SIZE, TAG_SIZE, WrongKey, type Meta, type Site } from "./site";
 
@@ -65,6 +65,8 @@ async function answer(request: Request, url: URL): Promise<Response> {
   if (opened.kind === "public") return fetch(request);
   if (opened.kind === "locked") {
     if (request.mode === "navigate") return fetch(BOOTSTRAP_PATH, { cache: "no-store" });
+    const iconShape = iconShapeAt(url.pathname);
+    if (iconShape !== null) return generatedIcon(request, iconShape);
     return unavailable();
   }
 
@@ -85,17 +87,28 @@ async function answer(request: Request, url: URL): Promise<Response> {
   } else if (target.kind === "list") {
     const listed = site.files.filter((file) => !isConfigFile(file.path));
     response = html(fileListPage(url.hostname, listed));
+  } else if (target.kind === "icon") {
+    response = await generatedIcon(request, target.shape);
   } else {
     response = notFound();
   }
-  applyHeaderRules(response.headers, site.siteRules, pathname, false);
+  applyHeaderRules(response.headers, site.siteRules, pathname, target.kind === "icon");
   return response;
 }
 
 function statusOf(target: Target): number {
   if (target.kind === "file") return target.status;
-  if (target.kind === "list") return 200;
+  if (target.kind === "list" || target.kind === "icon") return 200;
   return 404;
+}
+
+async function generatedIcon(request: Request, shape: IconShape): Promise<Response> {
+  try {
+    const icon = await fetch(GENERATED_ICON_PATHS[shape], { method: request.method, referrerPolicy: "no-referrer" });
+    return new Response(icon.body, { status: icon.status, headers: icon.headers });
+  } catch {
+    return unavailable();
+  }
 }
 
 async function bootstrapPage(status: number): Promise<Response> {

@@ -2,14 +2,17 @@ import bootSource from "virtual:browser/boot";
 import serviceWorkerSource from "virtual:browser/service-worker";
 import { keepSiteDecisions, READ_METHODS } from "./cors";
 import type { Env } from "./env";
+import { siteIcon } from "./icon";
 import { isDeployId, nameProblem } from "./names";
 import type { PackFile } from "./pack";
 import { fileListPage, privateSitePage } from "./pages";
-import { decodePath, isReserved, parseRange, redirectLocation } from "./resolve";
+import { decodePath, iconShapeAt, isReserved, parseRange, redirectLocation, type IconShape } from "./resolve";
 import { applyHeaderRules, isConfigFile, route } from "./rules";
 import { deployKey, EDGE_SECONDS, EXPIRES_HEADER, expiryOf, loadDeploy, readPointer, type Deploy } from "./storage";
 
 const ENTRY_PATH = /^\/__site\/entries\/(0|[1-9]\d*)$/;
+const ICON_TYPES: Record<IconShape, string> = { tab: "image/x-icon", touch: "image/png" };
+const ICON_DESIGN = 1;
 
 const IMMUTABLE = "public, max-age=31536000, immutable, no-transform";
 const REVALIDATE = "no-cache, no-transform";
@@ -44,7 +47,7 @@ export async function serveSite(request: Request, env: Env, ctx: ExecutionContex
   if (!deploy) return noSite();
 
   const url = new URL(request.url);
-  if (deploy.index.encrypted) return serveEncrypted(request, env, ctx, deploy, named, url.pathname);
+  if (deploy.index.encrypted) return serveEncrypted(request, env, ctx, deploy, named, url.pathname, label);
   const pathname = decodePath(url.pathname);
   if (pathname === null) return notFound();
   if (isReserved(pathname)) return notFound();
@@ -62,14 +65,17 @@ export async function serveSite(request: Request, env: Env, ctx: ExecutionContex
     response = await serveFile(request, env, ctx, deploy, target.number, target.status, named);
   } else if (target.kind === "list") {
     response = listing(request, deploy, named, url.hostname);
+  } else if (target.kind === "icon") {
+    response = await generatedIcon(request, label, target.shape);
   } else {
     response = notFound();
   }
-  keepSiteDecisions(response, applyHeaderRules(response.headers, deploy.index.rules, pathname, named));
+  const revalidated = named || target.kind === "icon";
+  keepSiteDecisions(response, applyHeaderRules(response.headers, deploy.index.rules, pathname, revalidated));
   return response;
 }
 
-async function serveEncrypted(request: Request, env: Env, ctx: ExecutionContext, deploy: Deploy, named: boolean, pathname: string): Promise<Response> {
+async function serveEncrypted(request: Request, env: Env, ctx: ExecutionContext, deploy: Deploy, named: boolean, pathname: string, label: string): Promise<Response> {
   if (pathname === "/__site/sw.js") return script(serviceWorkerSource, { "Service-Worker-Allowed": "/" });
   if (pathname === "/__site/boot.js") return script(bootSource, {});
   if (pathname === "/__site/meta") {
@@ -82,6 +88,9 @@ async function serveEncrypted(request: Request, env: Env, ctx: ExecutionContext,
     if (number >= deploy.index.files.length) return notFound();
     return serveFile(request, env, ctx, deploy, number, 200, named);
   }
+  const iconShape = iconShapeAt(pathname);
+  const openingPage = request.headers.get("sec-fetch-dest") === "document";
+  if (iconShape !== null && !openingPage) return generatedIcon(request, label, iconShape);
   return new Response(privateSitePage(), {
     headers: { "Content-Type": "text/html; charset=utf-8", "X-Content-Type-Options": "nosniff", "Cache-Control": REVALIDATE, "Referrer-Policy": "no-referrer", "X-Site-Bootstrap": "1" }
   });
@@ -216,6 +225,16 @@ function listing(request: Request, deploy: Deploy, named: boolean, hostname: str
   if (request.method === "HEAD") return new Response(null, { headers });
   const listed = deploy.index.files.filter((file) => !isConfigFile(file.path));
   return new Response(fileListPage(hostname, listed), { headers });
+}
+
+async function generatedIcon(request: Request, label: string, shape: IconShape): Promise<Response> {
+  const etag = `"icon${ICON_DESIGN}-${shape}-${label}"`;
+  const headers = contentHeaders(ICON_TYPES[shape], etag, 200, true);
+  if (sameVersion(request, etag)) return new Response(null, { status: 304, headers });
+  const bytes = await siteIcon(label, shape);
+  headers.set("Content-Length", String(bytes.byteLength));
+  if (request.method === "HEAD") return new Response(null, { headers });
+  return new Response(bytes, { headers });
 }
 
 function contentHeaders(type: string, etag: string, status: number, named: boolean): Headers {

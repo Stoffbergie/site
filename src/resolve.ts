@@ -2,8 +2,17 @@ import { knownType } from "./types";
 
 export type ListedFile = { path: string; type: string; length: number };
 export type Listing = { spa: boolean; files: ListedFile[]; byPath: Map<string, number> };
-export type Target = { kind: "file"; number: number; status: 200 | 404 } | { kind: "redirect"; path: string } | { kind: "list" } | { kind: "missing" };
+export type IconShape = "tab" | "touch";
+export type Target = { kind: "file"; number: number; status: 200 | 404 } | { kind: "redirect"; path: string } | { kind: "list" } | { kind: "icon"; shape: IconShape } | { kind: "missing" };
 export type ByteRange = { offset: number; length: number };
+
+export const GENERATED_ICON_PATHS: Record<IconShape, string> = { tab: "/favicon.ico", touch: "/apple-touch-icon.png" };
+
+const ICON_REQUESTS = new Map<string, { shape: IconShape; standIns: string[] }>([
+  ["favicon.ico", { shape: "tab", standIns: ["favicon.png", "favicon.svg", "icon.png", "icon.svg", "apple-touch-icon.png"] }],
+  ["apple-touch-icon.png", { shape: "touch", standIns: ["apple-touch-icon-precomposed.png", "icon.png", "favicon.png"] }],
+  ["apple-touch-icon-precomposed.png", { shape: "touch", standIns: ["apple-touch-icon.png", "icon.png", "favicon.png"] }]
+]);
 
 /**
  * Maps a decoded request path to a file of a deploy. The Worker uses it for public sites and the service worker for encrypted ones, so both serve the same paths.
@@ -20,6 +29,13 @@ export function resolve(listing: Listing, pathname: string): Target {
     const pages = files.filter((file) => isHtml(file));
     if (pages.length === 1) return { kind: "file", number: files.indexOf(pages[0]), status: 200 };
     return { kind: "list" };
+  }
+
+  const icon = ICON_REQUESTS.get(relative);
+  if (icon !== undefined) {
+    const standIn = firstMatch(icon.standIns, exactly);
+    if (standIn !== undefined) return { kind: "file", number: standIn, status: 200 };
+    return { kind: "icon", shape: icon.shape };
   }
 
   const underBasePath = basePathAsset(files, relative, exactly);
@@ -115,6 +131,15 @@ export function redirectLocation(path: string, url: URL): string | null {
   const location = `${encodedPath}${url.search}`;
   if (location === `${url.pathname}${url.search}`) return null;
   return location;
+}
+
+/**
+ * Names the icon a browser asks for at a path of its own accord, whatever the page says: the tab icon or the home-screen icon.
+ */
+export function iconShapeAt(pathname: string): IconShape | null {
+  const icon = ICON_REQUESTS.get(collapseSlashes(pathname).slice(1));
+  if (icon === undefined) return null;
+  return icon.shape;
 }
 
 export function isReserved(pathname: string): boolean {
