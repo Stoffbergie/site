@@ -13,5 +13,6 @@
     "noUnusedParameters": true,
     "skipLibCheck": true
   },
-  "include": ["src", "tests", "vite.config.ts"]
+  "include": ["src", "tests", "vite.config.ts", "vite.browser.ts"],
+  "exclude": ["src/browser"]
 }

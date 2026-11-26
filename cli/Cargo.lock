@@ -1192,11 +1192,13 @@ name = "site"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64",
  "clap",
  "dirs",
  "flate2",
  "getrandom 0.4.3",
  "reqwest",
+ "ring",
  "serde",
  "serde_json",
 ]

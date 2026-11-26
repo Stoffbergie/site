@@ -24,8 +24,23 @@ pub struct Listing {
 
 #[derive(Deserialize)]
 pub struct NameEntry {
+    pub name: String,
     pub url: String,
     pub id: Option<String>,
+    #[serde(default)]
+    pub encrypted: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LinkHint {
+    pub name: Option<String>,
+    pub link_salt: Option<String>,
+}
+
+pub struct Pointed {
+    pub url: String,
+    pub encrypted: bool,
 }
 
 #[derive(Deserialize)]
@@ -35,6 +50,8 @@ pub struct DeployEntry {
     pub created_at: String,
     pub size: u64,
     pub files: u64,
+    #[serde(default)]
+    pub encrypted: Option<LinkHint>,
 }
 
 pub fn base_url() -> String {
@@ -86,12 +103,15 @@ pub fn list(key: &str) -> Result<Listing> {
     Ok(checked(request)?.json()?)
 }
 
-pub fn point(key: &str, name: &str, id: &str) -> Result<String> {
+pub fn point(key: &str, name: &str, id: &str) -> Result<Pointed> {
     let request = client()?
         .put(format!("{}/names/{name}", base_url()))
         .bearer_auth(key)
         .json(&serde_json::json!({ "id": id }));
-    Ok(checked(request)?.text()?.trim().to_string())
+    let response = checked(request)?;
+    let encrypted = response.headers().contains_key("x-site-encrypted");
+    let url = response.text()?.trim().to_string();
+    Ok(Pointed { url, encrypted })
 }
 
 pub fn delete_deploy(key: &str, id: &str) -> Result<()> {

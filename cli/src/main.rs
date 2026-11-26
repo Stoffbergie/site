@@ -1,8 +1,10 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use crypto::LinkKey;
 
 mod api;
 mod config;
+mod crypto;
 mod output;
 mod pack;
 
@@ -12,7 +14,7 @@ mod pack;
     version,
     about = "Static sites, live in one command",
     args_conflicts_with_subcommands = true,
-    after_help = "Examples:\n  site dist                      Deploy a folder and print its URL\n  site dist -n todo              Also point todo.site.stoff.dev at it\n  site index.html style.css      Deploy loose files at the root\n  cat page.html | site -         Deploy stdin as index.html\n  site dist --spa                Serve index.html for client-side routes\n  site ls                        List your names and deploys\n  site point todo k3m9xq2a       Point a name at an earlier deploy\n  site rm k3m9xq2a               Delete a deploy (or release a name)\n  site key                       Print your key, to use on another machine\n\nSet SITE_KEY to use a key without saving it, and SITE_URL to use another server."
+    after_help = "Examples:\n  site dist                      Deploy a folder and print its URL\n  site dist -n todo              Also point todo.site.stoff.dev at it\n  site dist -e                   Encrypt it; only the full link opens it\n  site index.html style.css      Deploy loose files at the root\n  cat page.html | site -         Deploy stdin as index.html\n  site dist --spa                Serve index.html for client-side routes\n  site ls                        List your names and deploys\n  site point todo k3m9xq2a       Point a name at an earlier deploy\n  site rm k3m9xq2a               Delete a deploy (or release a name)\n  site key                       Print your key, to use on another machine\n\nSet SITE_KEY to use a key without saving it, and SITE_URL to use another server."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -27,6 +29,13 @@ struct Cli {
         help = "Point this name at the deploy, like todo for todo.site.stoff.dev"
     )]
     name: Option<String>,
+
+    #[arg(
+        short,
+        long,
+        help = "Encrypt the site on this machine; only the printed link, with its key after #, opens it"
+    )]
+    encrypt: bool,
 
     #[arg(
         long,
@@ -72,8 +81,14 @@ fn run(cli: Cli) -> Result<()> {
     match cli.command {
         Some(Command::Ls) => list(),
         Some(Command::Point { name, id }) => {
-            let url = api::point(&config::key()?, &name, &id)?;
-            println!("{url}");
+            let key = config::key()?;
+            let pointed = api::point(&key, &name, &id)?;
+            if pointed.encrypted {
+                let fragment = LinkKey::for_name(&key, &name)?.fragment();
+                println!("{}", with_key(&pointed.url, &fragment));
+            } else {
+                println!("{}", pointed.url);
+            }
             Ok(())
         }
         Some(Command::Rm { target }) => {
@@ -92,14 +107,32 @@ fn run(cli: Cli) -> Result<()> {
             Ok(())
         }
         Some(Command::Key { key: Some(key) }) => config::replace(&key),
-        None => deploy(cli.paths, cli.name, cli.spa, cli.no_copy),
+        None => deploy(cli.paths, cli.name, cli.spa, cli.no_copy, cli.encrypt),
     }
 }
 
-fn deploy(paths: Vec<String>, name: Option<String>, spa: bool, no_copy: bool) -> Result<()> {
-    let pack = pack::Pack::collect(&paths, spa)?;
+fn deploy(
+    paths: Vec<String>,
+    name: Option<String>,
+    spa: bool,
+    no_copy: bool,
+    encrypt: bool,
+) -> Result<()> {
     let key = config::key()?;
-    let deployed = api::deploy(&key, pack, name.as_deref())?;
+    let link_key = match (encrypt, &name) {
+        (false, _) => None,
+        (true, Some(name)) => Some(LinkKey::for_name(&key, name)?),
+        (true, None) => Some(LinkKey::fresh(&key)?),
+    };
+    let pack = pack::Pack::collect(&paths, spa, link_key.as_ref())?;
+    let mut deployed = api::deploy(&key, pack, name.as_deref())?;
+    if let Some(link_key) = &link_key {
+        let fragment = link_key.fragment();
+        deployed.url = with_key(&deployed.url, &fragment);
+        deployed.name_url = deployed
+            .name_url
+            .map(|name_url| with_key(&name_url, &fragment));
+    }
     let summary = format!(
         "{} {} · {}",
         deployed.files,
@@ -126,8 +159,13 @@ fn deploy(paths: Vec<String>, name: Option<String>, spa: bool, no_copy: bool) ->
     Ok(())
 }
 
+fn with_key(url: &str, fragment: &str) -> String {
+    format!("{url}/#{fragment}")
+}
+
 fn list() -> Result<()> {
-    let listing = api::list(&config::key()?)?;
+    let key = config::key()?;
+    let listing = api::list(&key)?;
     if listing.names.is_empty() && listing.deploys.is_empty() {
         output::note("No deploys yet. Deploy a folder with: site <folder>");
         return Ok(());
@@ -136,7 +174,17 @@ fn list() -> Result<()> {
         println!("{}", output::dim("NAMES"));
         for name in &listing.names {
             let target = name.id.as_deref().unwrap_or("-");
-            println!("{:<40} {}", name.url, output::dim(&format!("→ {target}")));
+            if name.encrypted {
+                let fragment = LinkKey::for_name(&key, &name.name)?.fragment();
+                let details = format!("→ {target}  encrypted");
+                println!(
+                    "{:<40} {}",
+                    with_key(&name.url, &fragment),
+                    output::dim(&details)
+                );
+            } else {
+                println!("{:<40} {}", name.url, output::dim(&format!("→ {target}")));
+            }
         }
     }
     if !listing.deploys.is_empty() {
@@ -146,13 +194,25 @@ fn list() -> Result<()> {
         println!("{}", output::dim("DEPLOYS"));
         for deploy in &listing.deploys {
             let files = if deploy.files == 1 { "file" } else { "files" };
-            let details = format!(
+            let mut details = format!(
                 "{:>8}  {:>9}  {} {files}",
                 output::age(&deploy.created_at),
                 output::size(deploy.size),
                 deploy.files
             );
-            println!("{:<40} {}", deploy.url, output::dim(&details));
+            let mut link = deploy.url.clone();
+            if let Some(hint) = &deploy.encrypted {
+                let link_key = match (&hint.name, &hint.link_salt) {
+                    (Some(name), _) => LinkKey::for_name(&key, name)?,
+                    (None, Some(link_salt)) => LinkKey::for_salt(&key, link_salt)?,
+                    (None, None) => {
+                        anyhow::bail!("the server listed {} without its link details", deploy.url)
+                    }
+                };
+                link = with_key(&deploy.url, &link_key.fragment());
+                details.push_str("  encrypted");
+            }
+            println!("{link:<40} {}", output::dim(&details));
         }
     }
     Ok(())

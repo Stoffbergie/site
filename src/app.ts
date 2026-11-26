@@ -2,11 +2,26 @@ import { Hono, type Context } from "hono";
 import type { Env } from "./env";
 import { isDeployId, isSiteKey, nameProblem } from "./names";
 import { homePage, homeText, notFoundPage } from "./pages";
-import { deployKey, MAX_NAMES, namesPointingAt, ownedDeploys, ownedNames, readPointer, readPointerRecord, releasePointer, removeDeploy, storeDeploy, writePointer, type Stored } from "./storage";
+import {
+  deployKey,
+  encryptedName,
+  isEncrypted,
+  MAX_NAMES,
+  namesPointingAt,
+  ownedDeploys,
+  ownedNames,
+  readPointer,
+  readPointerRecord,
+  releasePointer,
+  removeDeploy,
+  storeDeploy,
+  writePointer,
+  type Stored
+} from "./storage";
 
 type AppContext = Context<{ Bindings: Env }>;
 type Caller = { kind: "admin" } | { kind: "key"; owner: string } | { kind: "anonymous" } | { kind: "invalid" };
-type Claim = { etag: string | null };
+type Claim = { etag: string | null; pointedId: string | null };
 
 export const app = new Hono<{ Bindings: Env }>();
 
@@ -45,16 +60,21 @@ app.get("/list", async (c) => {
   const [names, deploys] = await Promise.all([ownedNames(c.env, caller.owner), ownedDeploys(c.env, caller.owner)]);
   const pointers = await Promise.all(names.map((name) => readPointer(c.env, name)));
   const newestFirst = deploys.sort((left, right) => right.uploaded.getTime() - left.uploaded.getTime());
+  const encryptedIds = new Set(deploys.filter((object) => isEncrypted(object)).map((object) => idOf(object)));
   return Response.json({
-    names: names.map((name, position) => ({ name, url: siteUrl(name, c.env.SITE_DOMAIN), id: pointers[position]?.id ?? null })),
+    names: names.map((name, position) => {
+      const id = pointers[position]?.id ?? null;
+      return { name, url: siteUrl(name, c.env.SITE_DOMAIN), id, encrypted: id !== null && encryptedIds.has(id) };
+    }),
     deploys: newestFirst.map((object) => {
-      const id = object.key.split("/").pop() ?? "";
+      const id = idOf(object);
       return {
         id,
         url: siteUrl(id, c.env.SITE_DOMAIN),
         createdAt: object.uploaded.toISOString(),
         size: Number(object.customMetadata?.size ?? 0),
-        files: Number(object.customMetadata?.files ?? 0)
+        files: Number(object.customMetadata?.files ?? 0),
+        encrypted: linkHintOf(object)
       };
     })
   });
@@ -71,8 +91,17 @@ app.put("/names/:name", async (c) => {
   if (claim instanceof Response) return claim;
   const target = isDeployId(id) ? await c.env.SITES.head(deployKey(id)) : null;
   if (!target || target.customMetadata?.owner !== caller.owner) return text(`You have no deploy ${id}; run site ls to see yours.\n`, 404);
+  const targetEncrypted = isEncrypted(target);
+  if (targetEncrypted && encryptedName(target) !== name) {
+    return text(`${id} was encrypted for its own link, so the link for ${name} could not open it; deploy again with site -e -n ${name}.\n`, 409);
+  }
+  if (!targetEncrypted && (await holdsEncrypted(c, claim.pointedId))) {
+    return text(`${name} holds an encrypted site; point it at a deploy encrypted for ${name}, or release it with site rm ${name} first.\n`, 409);
+  }
   if (!(await writePointer(c.env, name, caller.owner, id, claim.etag))) return text("That name changed while pointing it; try again.\n", 409);
-  return text(`${siteUrl(name, c.env.SITE_DOMAIN)}\n`);
+  const headers: Record<string, string> = {};
+  if (targetEncrypted) headers["X-Site-Encrypted"] = "true";
+  return text(`${siteUrl(name, c.env.SITE_DOMAIN)}\n`, 200, headers);
 });
 
 app.delete("/names/:name", async (c) => {
@@ -139,6 +168,14 @@ async function deploy(c: AppContext, filename: string): Promise<Response> {
   const stored = result.stored;
 
   if (name !== undefined && claim !== null && owner !== null) {
+    if (stored.encrypted !== null && stored.encrypted.name !== name) {
+      await removeDeploy(c.env, stored.id, owner);
+      return text(`This deploy was encrypted for another link; deploy with site -e -n ${name}.\n`, 400);
+    }
+    if (stored.encrypted === null && (await holdsEncrypted(c, claim.pointedId))) {
+      await removeDeploy(c.env, stored.id, owner);
+      return text(`${name} holds an encrypted site; deploy with -e to keep it private, or release it with site rm ${name} first.\n`, 409);
+    }
     const pointed = await writePointer(c.env, name, owner, stored.id, claim.etag);
     if (!pointed) {
       await removeDeploy(c.env, stored.id, owner);
@@ -154,11 +191,29 @@ async function prepareClaim(c: AppContext, name: string, owner: string): Promise
   const record = await readPointerRecord(c.env, name);
   if (record?.pointer) {
     if (record.pointer.owner !== owner) return text("That name is taken; pick another.\n", 409);
-    return { etag: record.etag };
+    return { etag: record.etag, pointedId: record.pointer.id };
   }
   const names = await ownedNames(c.env, owner);
   if (names.length >= MAX_NAMES) return text(`A key can hold ${MAX_NAMES} names; release one with site rm <name> first.\n`, 403);
-  return { etag: record?.etag ?? null };
+  return { etag: record?.etag ?? null, pointedId: null };
+}
+
+async function holdsEncrypted(c: AppContext, id: string | null): Promise<boolean> {
+  if (id === null) return false;
+  const object = await c.env.SITES.head(deployKey(id));
+  return object !== null && isEncrypted(object);
+}
+
+function idOf(object: R2Object): string {
+  return object.key.split("/").pop() ?? "";
+}
+
+function linkHintOf(object: R2Object): { name: string } | { linkSalt: string } | null {
+  const name = encryptedName(object);
+  if (name !== null) return { name };
+  const linkSalt = object.customMetadata?.linkSalt;
+  if (linkSalt !== undefined) return { linkSalt };
+  return null;
 }
 
 function deployed(c: AppContext, stored: Stored, name: string | undefined): Response {

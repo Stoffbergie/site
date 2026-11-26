@@ -1,8 +1,9 @@
 import { cloudflare } from "@cloudflare/vite-plugin";
 import { defineConfig } from "vite-plus";
+import { browserScripts } from "./vite.browser";
 
 export default defineConfig({
-  plugins: process.env.VITEST ? [] : [cloudflare()],
+  plugins: process.env.VITEST ? [] : [browserScripts(), cloudflare()],
   server: { host: "0.0.0.0", port: 8787, allowedHosts: true },
   test: {
     include: ["tests/**/*.test.ts"],
