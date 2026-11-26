@@ -26,8 +26,12 @@ function readLink(): Link {
   return { key: match[1], anchor: match[2] ?? "" };
 }
 
+function pageAddress(): string {
+  return `${location.origin}${location.pathname}${location.search}`;
+}
+
 function withAnchor(anchor: string): string {
-  const page = `${location.origin}${location.pathname}${location.search}`;
+  const page = pageAddress();
   if (anchor === "") return page;
   return `${page}#${anchor}`;
 }
@@ -102,7 +106,7 @@ function waitForControl(registration: ServiceWorkerRegistration): Promise<boolea
 type WorkerAnswer = "page" | "bootstrap" | "unavailable";
 
 async function askWorker(): Promise<WorkerAnswer> {
-  const response = await fetch(location.pathname + location.search, { cache: "no-store" });
+  const response = await fetch(pageAddress(), { cache: "no-store" });
   await response.body?.cancel();
   if (response.headers.has(BOOTSTRAP_HEADER)) return "bootstrap";
   if (response.status === 503) return "unavailable";

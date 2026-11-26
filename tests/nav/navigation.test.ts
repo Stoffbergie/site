@@ -494,6 +494,12 @@ add(
   },
   { modes: ["private"] }
 );
+add("flat", "a full link whose path starts with a doubled slash while the site is open", async (t) => {
+  await warm(t);
+  t.page = await t.context.newPage();
+  await t.open("//docs/guide.html");
+  await t.expect("guide");
+});
 const endsStuck = async (t: T): Promise<void> => {
   await t.waitFor(`document.querySelector('[data-state="stuck"]')?.hidden === false`);
   await t.eval(`window.stayed = true`);
