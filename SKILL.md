@@ -41,7 +41,7 @@ Everything goes up in one request and is live when the link prints. The CLI refu
 
 ## Names
 
-`-n todo` points `https://todo.site.stoff.dev` at the new deploy. The first use claims the name for this machine's key; later deploys with the same key move it, and the change is visible on the next load. "That name is taken" means another key owns it: pick another name, do not retry. A name holding an encrypted site refuses a deploy without `-e`; add `-e`, or release the name only if the user wants it public. With `-e -n`, the link stays the same across redeploys. Use a name only when the user wants a stable URL; one-off previews need no name.
+`-n todo` points `https://todo.site.stoff.dev` at the new deploy. The first use claims the name for this machine's key; later deploys with the same key move it, and the change is visible on the next load. "That name is taken" means another key owns it: pick another name, do not retry. A name holding an encrypted site refuses a deploy without `-e`; add `-e`, or release the name only if the user wants it public. With `-e -n`, the link stays the same across redeploys. Use a name only when the user wants a stable URL; one-off previews need no name. Every deploy gets a new address, and browsers keep storage, sign-ins and service workers per address, so an app people sign into, install or keep data in needs a name. Sites send open CORS headers and answer preflights, so other origins can load their files.
 
 Names are 3 to 40 lowercase letters, digits and hyphens. Reserved words and brand or credential words (bank, login, paypal and similar) are refused anywhere in the name.
 

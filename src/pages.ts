@@ -43,7 +43,11 @@ function usage(origin: string, domain: string): Section[] {
       title: "Use",
       rows: [
         ["site dist", "Deploy a folder", `Upload a folder in one request and print a URL like https://k3m9xq2a.${domain}. Every deploy gets its own URL and never changes.`],
-        ["site dist -n todo", "Give it a name", `Also point https://todo.${domain} at this deploy. The first deploy claims the name; later deploys with your key move it.`],
+        [
+          "site dist -n todo",
+          "Give it a name",
+          `Also point https://todo.${domain} at this deploy. The first deploy claims the name; later deploys with your key move it. Browsers keep storage, sign-ins and service workers per address, so use a name for anything people come back to.`
+        ],
         [
           "site dist -e",
           "Keep it private",

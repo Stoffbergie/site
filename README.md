@@ -114,6 +114,16 @@ What it protects and what it doesn't:
 - A name holding an encrypted site never turns public by accident: deploying to it without `-e` is refused.
 - It needs JavaScript and service workers, so it opens in current browsers but not in private windows that turn service workers off. Encrypting needs the CLI; there is no encrypted deploy through curl.
 
+## Moving from localhost or another host
+
+Every site is served over HTTPS and sends `Access-Control-Allow-Origin` for any origin, credentials included, answers preflight requests, and allows `Timing-Allow-Origin` and cross-origin embedding, so pages elsewhere can use its files, fonts, images, modules and iframes. Sites are read-only: anything but GET, HEAD and OPTIONS gets 405.
+
+What the address change breaks outside site: an API's CORS allowlist, OAuth redirect URLs, and keys restricted to a domain (Maps, Firebase and similar) need the new address added on their side.
+
+Browsers keep storage, sign-ins, installs and service workers per address, and every deploy gets a new one. Use `-n` for anything people come back to.
+
+Sites under `site.stoff.dev` share a parent domain. Each site's localStorage, IndexedDB and service workers are its own, but a cookie set with `Domain=site.stoff.dev` reaches every site, so do not trust cookies for anything that matters.
+
 ## Your key
 
 There's no login. The first deploy makes a random key on your machine, and that key owns your deploys and names. Only a hash of it reaches the server's storage.

@@ -36,7 +36,7 @@ export default async function startWorker(project: TestProject): Promise<() => P
         }
       })
     ],
-    server: { host: "127.0.0.1", port: 0, allowedHosts: true }
+    server: { host: "127.0.0.1", port: 0, allowedHosts: true, cors: false }
   });
   await server.listen();
   const address = server.httpServer?.address() as AddressInfo;
