@@ -90,4 +90,8 @@ async function boot(): Promise<void> {
   location.reload();
 }
 
+window.addEventListener("hashchange", () => {
+  if (location.hash.length > 1) location.reload();
+});
+
 boot().catch(() => show("failed"));

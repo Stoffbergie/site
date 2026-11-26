@@ -146,6 +146,9 @@ test("without the key the site says it is private, and a wrong key says so", asy
   await keyless.goto(`${origin}/`);
   await keyless.waitForSelector("text=This site is private");
   assert.equal(await keyless.isVisible("text=Secret"), false);
+  await keyless.goto(browserUrl(url));
+  await keyless.waitForSelector("text=Secret");
+  assert.equal(keyless.url(), `${origin}/`);
   await keyless.context().close();
 
   const wrong = await newPage();
@@ -154,5 +157,7 @@ test("without the key the site says it is private, and a wrong key says so", asy
   assert.equal(wrong.url(), `${origin}/`);
   await wrong.reload();
   await wrong.waitForSelector("text=This site is private");
+  await wrong.goto(browserUrl(url));
+  await wrong.waitForSelector("text=Secret");
   await wrong.context().close();
 });
