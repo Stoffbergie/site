@@ -23,6 +23,8 @@ import { byPathOf } from "./resolve";
 import { knownType, SNIFF_BYTES, sniffedType } from "./types";
 
 export const MAX_NAMES = 20;
+export const MAX_DEPLOYS = 1000;
+const MAX_STORED_BYTES = 5_000_000_000;
 export const EDGE_SECONDS = 300;
 const HEAD_READ_BYTES = 65_536;
 const CHARSET_SNIFF_BYTES = 65_536;
@@ -268,8 +270,21 @@ export async function ownedNames(env: Env, owner: string): Promise<string[]> {
 }
 
 export async function ownedDeploys(env: Env, owner: string): Promise<R2Object[]> {
-  const listed = await env.SITES.list({ prefix: ownedDeployKey(owner, ""), limit: 1000, include: ["customMetadata"] });
-  return listed.objects;
+  const objects: R2Object[] = [];
+  let cursor: string | undefined;
+  while (true) {
+    const listed = await env.SITES.list({ prefix: ownedDeployKey(owner, ""), limit: 1000, include: ["customMetadata"], cursor });
+    objects.push(...listed.objects);
+    if (!listed.truncated) return objects;
+    cursor = listed.cursor;
+  }
+}
+
+export async function holdsTooMuch(env: Env, owner: string): Promise<boolean> {
+  const deploys = await ownedDeploys(env, owner);
+  if (deploys.length >= MAX_DEPLOYS) return true;
+  const storedBytes = deploys.reduce((sum, object) => sum + Number(object.customMetadata?.size ?? 0), 0);
+  return storedBytes >= MAX_STORED_BYTES;
 }
 
 export async function namesPointingAt(env: Env, owner: string, id: string): Promise<string[]> {

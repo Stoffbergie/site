@@ -97,7 +97,7 @@ function usage(origin: string, domain: string): Section[] {
   ];
 }
 
-const LIMITS = `Deploys made with a key stay until you remove them; deploys made without one are removed after 7 days. Each deploy holds up to 100 MB and 5000 files; each key holds up to 20 names. Names are 3 to 40 lowercase letters, digits and hyphens. Errors are plain text: 400 bad upload or name, 401 missing key, 403 not yours, 409 name taken, 413 too large, 429 too many requests.`;
+const LIMITS = `Deploys made with a key stay until you remove them; deploys made without one are removed after 7 days. Each deploy holds up to 100 MB and 5000 files; each key holds up to 20 names, 1000 deploys and 5 GB of files. Names are 3 to 40 lowercase letters, digits and hyphens. Errors are plain text: 400 bad upload or name, 401 missing key, 403 not yours or key limit reached, 409 name taken, 413 too large, 429 too many requests.`;
 
 export function homeText(origin: string, domain: string): string {
   const lines = [`site: ${TAGLINE.toLowerCase()}`, "", AUTOMATION_GUIDANCE, ""];
