@@ -1,7 +1,7 @@
 import { strict as assert } from "node:assert";
 import { execFileSync, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readlinkSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { request as httpRequest } from "node:http";
@@ -393,4 +393,58 @@ test("a name lookup that never answers ends in one sentence instead of hanging",
   const seconds = (performance.now() - started) / 1000;
   assertPlainSentence(run);
   assert.ok(seconds < 150, `gave up in ${seconds}s`);
+});
+
+test("spooled files and ciphertext never show in the temporary folder, even when the CLI is killed", { timeout: 90_000 }, async () => {
+  const home = newHome();
+  const temporary = mkdtempSync(join(tmpdir(), "site-temporary-"));
+  const files = { "index.html": "<h1>spooled</h1>", "data.bin": randomBytes(6_000_000) };
+  const temporaryEnv = { TMPDIR: temporary, TMP: temporary, TEMP: temporary };
+  const proxy = await faultProxy(() => ({ kind: "throttle", bytesPerSecond: 500_000 }));
+  try {
+    const child = spawn(cliPath, ["--no-copy", "-e", folder(files)], { env: { ...process.env, SITE_URL: proxy.url, HOME: home, XDG_CONFIG_HOME: home, NO_COLOR: "1", ...temporaryEnv } });
+    child.stdin.end();
+    while (proxy.uploaded() < 1_000_000) await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.deepEqual(readdirSync(temporary), [], "nothing is linked in the temporary folder during the upload");
+    const descriptors = `/proc/${child.pid}/fd`;
+    if (existsSync(descriptors)) {
+      for (const descriptor of readdirSync(descriptors)) {
+        if (!readlinkSync(join(descriptors, descriptor)).startsWith(temporary)) continue;
+        assert.equal(statSync(join(descriptors, descriptor)).mode & 0o777, 0o600, "only the owner can read a spool");
+      }
+    }
+    child.kill("SIGKILL");
+    await new Promise((resolve) => child.on("close", resolve));
+  } finally {
+    proxy.close();
+  }
+  assert.deepEqual(readdirSync(temporary), [], "a killed CLI leaves nothing behind");
+  const run = await runCli(["--no-copy", "-e", folder(files)], { home, env: temporaryEnv });
+  assert.equal(run.code, 0, run.stderr);
+  assert.deepEqual(readdirSync(temporary), [], "a finished CLI leaves nothing behind");
+});
+
+function withSmallFileLimit(args: string[], input: Buffer): Promise<Run> {
+  const home = newHome();
+  const script = 'ulimit -f 2000; trap "" XFSZ; exec "$0" "$@"';
+  const child = spawn("/bin/sh", ["-c", script, cliPath, ...args], { env: { ...process.env, SITE_URL: baseUrl, HOME: home, XDG_CONFIG_HOME: home, NO_COLOR: "1" } });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (chunk: Buffer) => (stdout += chunk.toString()));
+  child.stderr.on("data", (chunk: Buffer) => (stderr += chunk.toString()));
+  child.stdin.on("error", () => undefined);
+  child.stdin.end(input);
+  return new Promise((resolve) => child.on("close", (code) => resolve({ code, stdout, stderr })));
+}
+
+test("a private deploy that runs out of temporary space says so", { timeout: 60_000 }, async () => {
+  const run = await withSmallFileLimit(["--no-copy", "-e", "-"], randomBytes(8_000_000));
+  assertPlainSentence(run);
+  assert.match(run.stderr, /temporary/);
+});
+
+test("an oversized private deploy is refused before its ciphertext is written", { timeout: 60_000 }, async () => {
+  const run = await withSmallFileLimit(["--no-copy", "-e", "-"], randomBytes(101_000_000));
+  assertPlainSentence(run);
+  assert.match(run.stderr, /the limit is 100 MB/);
 });

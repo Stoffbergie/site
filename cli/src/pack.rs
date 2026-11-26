@@ -126,25 +126,103 @@ enum Body {
 }
 
 struct Spool {
-    path: PathBuf,
+    file: File,
     length: u64,
 }
 
-impl Spool {
-    fn create() -> std::io::Result<(Spool, File)> {
-        let mut random = [0u8; 8];
-        getrandom::fill(&mut random).map_err(std::io::Error::other)?;
-        let name = format!("site-{}-{}.part", std::process::id(), hash_hex(&random));
-        let path = std::env::temp_dir().join(name);
-        let file = File::options().write(true).create_new(true).open(&path)?;
-        Ok((Spool { path, length: 0 }, file))
+struct SpoolReader<'a> {
+    spool: &'a Spool,
+    position: u64,
+}
+
+impl Read for SpoolReader<'_> {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        let left = self.spool.length - self.position;
+        let wanted = (buffer.len() as u64).min(left) as usize;
+        if wanted == 0 {
+            return Ok(0);
+        }
+        let count = read_at(&self.spool.file, &mut buffer[..wanted], self.position)?;
+        if count == 0 {
+            return Err(std::io::ErrorKind::UnexpectedEof.into());
+        }
+        self.position += count as u64;
+        Ok(count)
     }
 }
 
-impl Drop for Spool {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.path);
+#[cfg(unix)]
+fn read_at(file: &File, buffer: &mut [u8], offset: u64) -> std::io::Result<usize> {
+    std::os::unix::fs::FileExt::read_at(file, buffer, offset)
+}
+
+#[cfg(windows)]
+fn read_at(file: &File, buffer: &mut [u8], offset: u64) -> std::io::Result<usize> {
+    std::os::windows::fs::FileExt::seek_read(file, buffer, offset)
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+const O_TMPFILE: Option<i32> = Some(0o20200000);
+#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+const O_TMPFILE: Option<i32> = Some(0o20040000);
+#[cfg(all(
+    unix,
+    not(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))
+))]
+const O_TMPFILE: Option<i32> = None;
+
+#[cfg(unix)]
+fn anonymous_file() -> std::io::Result<File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let folder = std::env::temp_dir();
+    if let Some(flag) = O_TMPFILE {
+        let unnamed = File::options()
+            .read(true)
+            .write(true)
+            .mode(0o600)
+            .custom_flags(flag)
+            .open(&folder);
+        if let Ok(file) = unnamed {
+            return Ok(file);
+        }
     }
+    let path = folder.join(spool_name()?);
+    let file = File::options()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&path)?;
+    std::fs::remove_file(&path)?;
+    Ok(file)
+}
+
+#[cfg(windows)]
+fn anonymous_file() -> std::io::Result<File> {
+    use std::os::windows::fs::OpenOptionsExt;
+    const FILE_ATTRIBUTE_TEMPORARY: u32 = 0x100;
+    const FILE_FLAG_DELETE_ON_CLOSE: u32 = 0x0400_0000;
+    File::options()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .share_mode(0)
+        .attributes(FILE_ATTRIBUTE_TEMPORARY)
+        .custom_flags(FILE_FLAG_DELETE_ON_CLOSE)
+        .open(std::env::temp_dir().join(spool_name()?))
+}
+
+fn spool_name() -> std::io::Result<String> {
+    let mut random = [0u8; 8];
+    getrandom::fill(&mut random).map_err(std::io::Error::other)?;
+    Ok(format!(
+        "site-{}-{}.part",
+        std::process::id(),
+        hash_hex(&random)
+    ))
 }
 
 impl Body {
@@ -160,7 +238,7 @@ impl Body {
         match self {
             Body::Bytes(_) => None,
             Body::File { path, length } => Some((path, *length)),
-            Body::Spooled(spool) => Some((&spool.path, spool.length)),
+            Body::Spooled(_) => None,
         }
     }
 
@@ -168,25 +246,55 @@ impl Body {
         match self {
             Body::Bytes(bytes) => Ok(Box::new(bytes.as_slice())),
             Body::File { path, length } => Ok(Box::new(File::open(path)?.take(*length))),
-            Body::Spooled(spool) => Ok(Box::new(File::open(&spool.path)?.take(spool.length))),
+            Body::Spooled(spool) => Ok(Box::new(SpoolReader { spool, position: 0 })),
         }
     }
 }
 
-fn spool(reader: &mut impl Read) -> std::io::Result<Body> {
+enum Spooling {
+    ReadFailed,
+    NoRoom,
+}
+
+fn spool(reader: &mut impl Read) -> Result<Body, Spooling> {
     let mut head = Vec::new();
     reader
         .by_ref()
         .take(LARGEST_SPOOL_IN_MEMORY + 1)
-        .read_to_end(&mut head)?;
+        .read_to_end(&mut head)
+        .map_err(|_| Spooling::ReadFailed)?;
     if head.len() as u64 <= LARGEST_SPOOL_IN_MEMORY {
         return Ok(Body::Bytes(head));
     }
-    let (mut spool, mut file) = Spool::create()?;
-    file.write_all(&head)?;
-    let rest = std::io::copy(reader, &mut file)?;
-    spool.length = head.len() as u64 + rest;
-    Ok(Body::Spooled(spool))
+    let mut file = anonymous_file().map_err(|_| Spooling::NoRoom)?;
+    file.write_all(&head).map_err(|_| Spooling::NoRoom)?;
+    let mut length = head.len() as u64;
+    let mut buffer = vec![0u8; 64 * 1024];
+    loop {
+        let count = match reader.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(count) => count,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => return Err(Spooling::ReadFailed),
+        };
+        file.write_all(&buffer[..count])
+            .map_err(|_| Spooling::NoRoom)?;
+        length += count as u64;
+    }
+    Ok(Body::Spooled(Spool { file, length }))
+}
+
+fn no_room() -> anyhow::Error {
+    anyhow::anyhow!(
+        "the temporary folder ran out of space while preparing the deploy; free some disk space and deploy again"
+    )
+}
+
+fn too_large(size: u64) -> anyhow::Error {
+    anyhow::anyhow!(
+        "this deploy is {} and the limit is 100 MB; leave out large files or host them elsewhere",
+        crate::output::size(size)
+    )
 }
 
 enum Content<'a> {
@@ -296,10 +404,7 @@ impl Pack {
         let stored: u64 = placed.iter().map(|file| file.stored.length).sum();
         let largest = total.max(header.len() as u64 + stored);
         if largest > MAX_DEPLOY_BYTES {
-            bail!(
-                "this deploy is {} and the limit is 100 MB; leave out large files or host them elsewhere",
-                crate::output::size(largest)
-            );
+            return Err(too_large(largest));
         }
         let reuses = placed.iter().any(|file| file.reused.is_some());
         let files = placed.into_iter().map(|file| file.stored).collect();
@@ -475,6 +580,13 @@ fn seal(
     }
     let mut plain = vec![Body::Bytes(sealed_index)];
     plain.extend(files);
+    let sealed_total: u64 = plain
+        .iter()
+        .map(|body| crypto::sealed_length(body.length()))
+        .sum();
+    if sealed_total > MAX_DEPLOY_BYTES {
+        return Err(too_large(sealed_total));
+    }
 
     let mut bodies = Vec::with_capacity(plain.len());
     let mut entries = Vec::with_capacity(plain.len());
@@ -519,7 +631,11 @@ fn seal_body(entry: u32, body: &Body, sealer: &Sealer) -> Result<Body> {
         sealer: sealer.clone(),
         sealed: std::io::Cursor::new(Vec::new()),
     };
-    let sealed = spool(&mut sealing).map_err(|_| changed())?;
+    let sealed = match spool(&mut sealing) {
+        Ok(sealed) => sealed,
+        Err(Spooling::ReadFailed) => return Err(changed()),
+        Err(Spooling::NoRoom) => return Err(no_room()),
+    };
     if sealed.length() != crypto::sealed_length(plain_length) {
         return Err(changed());
     }
@@ -709,7 +825,11 @@ impl<R: Read> Read for Hashing<R> {
 fn snapshot(path: &Path) -> Result<(Body, String)> {
     let unreadable = || format!("could not read {}", path.display());
     let mut reader = Hashing::new(File::open(path).with_context(unreadable)?);
-    let body = spool(&mut reader).with_context(unreadable)?;
+    let body = match spool(&mut reader) {
+        Ok(body) => body,
+        Err(Spooling::ReadFailed) => bail!(unreadable()),
+        Err(Spooling::NoRoom) => return Err(no_room()),
+    };
     Ok((body, reader.digest()))
 }
 
@@ -1208,6 +1328,15 @@ impl Read for BodyReader {
             let rest = &bytes[self.position..];
             let count = rest.len().min(buffer.len());
             buffer[..count].copy_from_slice(&rest[..count]);
+            self.position += count;
+            return Ok(count);
+        }
+        if let Body::Spooled(spool) = body {
+            let mut reader = SpoolReader {
+                spool,
+                position: self.position as u64,
+            };
+            let count = reader.read(buffer)?;
             self.position += count;
             return Ok(count);
         }
