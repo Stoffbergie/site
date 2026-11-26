@@ -8,7 +8,7 @@ export type ByteRange = { offset: number; length: number };
  */
 export function resolve(listing: Listing, pathname: string): Target {
   const { byPath, files } = listing;
-  const relative = pathname.slice(1);
+  const relative = collapseSlashes(pathname).slice(1);
 
   const candidates: string[] = [];
   if (relative === "" || relative.endsWith("/")) {
@@ -37,6 +37,14 @@ export function resolve(listing: Listing, pathname: string): Target {
   const notFoundPage = byPath.get("404.html");
   if (notFoundPage !== undefined) return { kind: "file", number: notFoundPage, status: 404 };
   return { kind: "missing" };
+}
+
+export function folderLocation(url: URL): string {
+  return `${collapseSlashes(url.pathname)}/${url.search}`;
+}
+
+function collapseSlashes(pathname: string): string {
+  return pathname.replace(/\/{2,}/g, "/");
 }
 
 export function byPathOf(files: ListedFile[]): Map<string, number> {
