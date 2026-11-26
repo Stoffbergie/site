@@ -73,7 +73,7 @@ export function checkIndex(json: Uint8Array, dataLength: number): IndexCheck {
     if (seen.has(path)) return { problem: `The pack lists ${path} twice.` };
     if (offset !== expectedOffset) return { problem: `The pack's offsets do not line up at ${path}.` };
     if (!Number.isSafeInteger(length) || (length as number) < 0) return { problem: `The pack has a bad length for ${path}.` };
-    if (typeof type !== "string" || type.length === 0 || type.length > MAX_TYPE_LENGTH || !/^[\x20-\x7e]+$/.test(type)) return { problem: `The pack has a bad content type for ${path}.` };
+    if (!validType(type)) return { problem: `The pack has a bad content type for ${path}.` };
     if (typeof gzip !== "boolean") return { problem: `The pack needs a gzip flag for ${path}.` };
     if (br !== undefined && typeof br !== "boolean") return { problem: `The pack has a bad br flag for ${path}.` };
     if (br === true && gzip) return { problem: `The pack marks ${path} as both gzip and br.` };
@@ -126,6 +126,10 @@ function checkEncrypted(value: unknown): Encrypted | null {
 
 function opaqueEntry(number: number, offset: number, length: number): PackFile {
   return { path: String(number), offset, length, type: ENTRY_TYPE, gzip: false };
+}
+
+export function validType(type: unknown): type is string {
+  return typeof type === "string" && type.length > 0 && type.length <= MAX_TYPE_LENGTH && /^[\x20-\x7e]+$/.test(type);
 }
 
 export function validPath(path: string): boolean {

@@ -1,8 +1,10 @@
 use crate::output;
 use crate::pack::Pack;
 use anyhow::{Context, Result, bail};
+use reqwest::StatusCode;
 use reqwest::blocking::{Body, Client, RequestBuilder, Response};
 use serde::Deserialize;
+use std::sync::Arc;
 use std::time::Duration;
 
 const DEFAULT_URL: &str = "https://site.stoff.dev";
@@ -10,6 +12,7 @@ const DEFAULT_URL: &str = "https://site.stoff.dev";
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Deployed {
+    pub id: String,
     pub url: String,
     pub name_url: Option<String>,
     pub files: u64,
@@ -77,7 +80,12 @@ pub fn is_deploy_id(value: &str) -> bool {
         && value.bytes().any(|byte| byte.is_ascii_digit())
 }
 
-pub fn deploy(key: &str, pack: Pack, name: Option<&str>) -> Result<Deployed> {
+pub enum Outcome {
+    Deployed(Deployed),
+    Stale,
+}
+
+pub fn deploy(key: &str, pack: Pack, name: Option<&str>) -> Result<Outcome> {
     let total = pack.total;
     let mut url = format!("{}/", base_url());
     if let Some(name) = name {
@@ -88,12 +96,18 @@ pub fn deploy(key: &str, pack: Pack, name: Option<&str>) -> Result<Deployed> {
         .bearer_auth(key)
         .header("Accept", "application/json")
         .header("Content-Type", "application/octet-stream")
-        .body(Body::sized(pack.into_reader(), total));
-    let result = checked(request);
+        .body(Body::sized(Pack::reader(&Arc::new(pack)), total));
+    let sent = request
+        .send()
+        .with_context(|| format!("could not reach {}; check your connection", base_url()));
     if output::stderr_is_terminal() && total > 1_000_000 {
         output::clear_progress();
     }
-    Ok(result?.json()?)
+    let response = sent?;
+    if response.status() == StatusCode::PRECONDITION_FAILED {
+        return Ok(Outcome::Stale);
+    }
+    Ok(Outcome::Deployed(refused_or(response)?.json()?))
 }
 
 pub fn list(key: &str) -> Result<Listing> {
@@ -134,6 +148,10 @@ fn checked(request: RequestBuilder) -> Result<Response> {
     let response = request
         .send()
         .with_context(|| format!("could not reach {}; check your connection", base_url()))?;
+    refused_or(response)
+}
+
+fn refused_or(response: Response) -> Result<Response> {
     if response.status().is_success() {
         return Ok(response);
     }

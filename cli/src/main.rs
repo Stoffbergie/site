@@ -9,6 +9,7 @@ mod crypto;
 mod dotfiles;
 mod output;
 mod pack;
+mod reuse;
 mod rules;
 mod types;
 
@@ -106,6 +107,7 @@ fn run(cli: Cli) -> Result<()> {
             let key = config::key()?;
             if api::is_deploy_id(&target) {
                 api::delete_deploy(&key.api, &target)?;
+                reuse::forget_deploy(&target);
                 output::note(&format!("Deleted {target}"));
             } else {
                 api::release_name(&key.api, &target)?;
@@ -129,14 +131,35 @@ fn deploy(
     no_copy: bool,
     encrypt: bool,
 ) -> Result<()> {
+    let sources = pack::sources(&paths)?;
     let key = config::key()?;
     let link_key = match (encrypt, &name) {
         (false, _) => None,
         (true, Some(name)) => Some(LinkKey::for_name(key.secret()?, name)?),
         (true, None) => Some(LinkKey::fresh(key.secret()?)?),
     };
-    let pack = pack::Pack::collect(&paths, spa, link_key.as_ref())?;
-    let mut deployed = api::deploy(&key.api, pack, name.as_deref())?;
+    let server = api::base_url();
+    let mut known = reuse::Known::new();
+    if link_key.is_none() {
+        known = reuse::known(&server, &key.api);
+    }
+    let pack = pack::Pack::build(&sources, spa, link_key.as_ref(), &known)?;
+    let mut files = pack.files.clone();
+    let reused = pack.reuses;
+    let mut outcome = api::deploy(&key.api, pack, name.as_deref())?;
+    if reused && matches!(outcome, api::Outcome::Stale) {
+        reuse::forget_all(&server, &key.api);
+        let fresh = pack::Pack::build(&sources, spa, None, &reuse::Known::new())?;
+        files = fresh.files.clone();
+        outcome = api::deploy(&key.api, fresh, name.as_deref())?;
+    }
+    let mut deployed = match outcome {
+        api::Outcome::Deployed(deployed) => deployed,
+        api::Outcome::Stale => anyhow::bail!("the server refused the request; try again"),
+    };
+    if link_key.is_none() {
+        reuse::remember(&server, &key.api, &deployed.id, files);
+    }
     if let Some(link_key) = &link_key {
         let fragment = link_key.fragment();
         deployed.url = with_key(&deployed.url, &fragment);

@@ -1,4 +1,5 @@
 import { fitCharset, mayCarryCharset } from "./charset";
+import { readCompactPack, startsWithCompactMagic } from "./compact";
 import type { Env } from "./env";
 import { randomId } from "./names";
 import {
@@ -27,7 +28,7 @@ const MEMORY_ENTRIES = 500;
 
 export type Deploy = { id: string; index: PackIndex; dataStart: number; byPath: Map<string, number> };
 export type Stored = { id: string; files: number; size: number; encrypted: Encrypted | null };
-export type StoreResult = { stored: Stored } | { problem: string; status: 400 | 411 | 413 };
+export type StoreResult = { stored: Stored } | { problem: string; status: 400 | 411 | 412 | 413 };
 export type Pointer = { id: string; owner: string };
 export type PointerRecord = { etag: string; pointer: Pointer | null; releasedBy: string | null };
 
@@ -74,6 +75,12 @@ export async function storeDeploy(env: Env, request: Request, filename: string, 
     index = check.index;
     source = taker.remaining([preamble, json]);
     total = body.length;
+  } else if (startsWithCompactMagic(magic)) {
+    const compact = await readCompactPack(env, taker, body.length, owner);
+    if ("problem" in compact) return compact;
+    index = compact.index;
+    source = compact.source;
+    total = compact.total;
   } else {
     const safeName = validPath(filename) && !filename.includes("/") ? filename : "file";
     let type = knownType(safeName);
@@ -99,8 +106,7 @@ export async function storeDeploy(env: Env, request: Request, filename: string, 
   const size = index.files.reduce((sum, file) => sum + file.length, 0);
   let files = index.files.length;
   if (index.encrypted) files -= 1;
-  const listed: Record<string, string> = { files: String(files), size: String(size), ...linkHint(index.encrypted) };
-  const metadata: Record<string, string> = { ...listed };
+  const metadata: Record<string, string> = { files: String(files), size: String(size), ...linkHint(index.encrypted) };
   if (owner) metadata.owner = owner;
 
   const id = randomId();
@@ -113,8 +119,12 @@ export async function storeDeploy(env: Env, request: Request, filename: string, 
     return malformed("The upload was shorter or longer than it said; deploy again.");
   }
   if (!written) throw new Error(`Deploy id ${id} was already taken`);
-  if (owner) await env.SITES.put(ownedDeployKey(owner, id), "", { customMetadata: listed });
   return { stored: { id, files, size, encrypted: index.encrypted ?? null } };
+}
+
+export async function markOwnedDeploy(env: Env, owner: string, stored: Stored): Promise<void> {
+  const listed = { files: String(stored.files), size: String(stored.size), ...linkHint(stored.encrypted ?? undefined) };
+  await env.SITES.put(ownedDeployKey(owner, stored.id), "", { customMetadata: listed });
 }
 
 function linkHint(encrypted: Encrypted | undefined): Record<string, string> {
@@ -194,10 +204,10 @@ export async function readPointer(env: Env, name: string): Promise<Pointer | nul
   return record.pointer;
 }
 
-export async function writePointer(env: Env, name: string, owner: string, id: string, previousEtag: string | null): Promise<boolean> {
+export async function writePointer(env: Env, name: string, owner: string, id: string, previousEtag: string | null, markOwner: boolean): Promise<boolean> {
   const written = await env.SITES.put(nameKey(name), crypto.randomUUID(), { customMetadata: { id, owner }, onlyIf: versionCondition(previousEtag) });
   if (!written) return false;
-  await env.SITES.put(ownedNameKey(owner, name), "");
+  if (markOwner) await env.SITES.put(ownedNameKey(owner, name), "");
   return true;
 }
 

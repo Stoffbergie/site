@@ -6,6 +6,7 @@ import {
   deployKey,
   encryptedName,
   isEncrypted,
+  markOwnedDeploy,
   MAX_NAMES,
   namesPointingAt,
   ownedDeploys,
@@ -100,7 +101,7 @@ app.put("/names/:name", async (c) => {
   if (!targetEncrypted && (await holdsEncrypted(c, claim.pointedId))) {
     return text(`${name} holds an encrypted site; point it at a deploy encrypted for ${name}, or release it with site rm ${name} first.\n`, 409);
   }
-  if (!(await writePointer(c.env, name, caller.owner, id, claim.etag))) return text("That name changed while pointing it; try again.\n", 409);
+  if (!(await writePointer(c.env, name, caller.owner, id, claim.etag, claim.pointedId === null))) return text("That name changed while pointing it; try again.\n", 409);
   const headers: Record<string, string> = {};
   if (targetEncrypted) headers["X-Site-Encrypted"] = "true";
   return text(`${siteUrl(name, c.env.SITE_DOMAIN)}\n`, 200, headers);
@@ -159,32 +160,43 @@ async function deploy(c: AppContext, filename: string): Promise<Response> {
   if (caller.kind === "key") owner = caller.owner;
 
   const name = c.req.query("name");
-  let claim: Claim | null = null;
+  let claiming: Promise<Claim | Response> | null = null;
   if (name !== undefined) {
     if (owner === null) return text("Naming a site needs your key; deploy with the site CLI or send Authorization: Bearer <key>.\n", 401);
-    const prepared = await prepareClaim(c, name, owner);
-    if (prepared instanceof Response) return prepared;
-    claim = prepared;
+    const problem = nameProblem(name);
+    if (problem !== null) return text(`${problem}\n`, 400);
+    claiming = prepareClaim(c, name, owner);
   }
 
   const result = await storeDeploy(c.env, c.req.raw, filename, owner);
+  let claim: Claim | Response | null = null;
+  if (claiming !== null) claim = await claiming;
   if ("problem" in result) return text(`${result.problem}\n`, result.status);
   const stored = result.stored;
+  if (claim instanceof Response) {
+    await removeDeploy(c.env, stored.id, undefined);
+    return claim;
+  }
 
-  if (name !== undefined && claim !== null && owner !== null) {
+  if (name !== undefined && claim !== null) {
     if (stored.encrypted !== null && stored.encrypted.name !== name) {
-      await removeDeploy(c.env, stored.id, owner);
+      await removeDeploy(c.env, stored.id, undefined);
       return text(`This deploy was encrypted for another link; deploy with site -e -n ${name}.\n`, 400);
     }
     if (stored.encrypted === null && (await holdsEncrypted(c, claim.pointedId))) {
-      await removeDeploy(c.env, stored.id, owner);
+      await removeDeploy(c.env, stored.id, undefined);
       return text(`${name} holds an encrypted site; deploy with -e to keep it private, or release it with site rm ${name} first.\n`, 409);
     }
-    const pointed = await writePointer(c.env, name, owner, stored.id, claim.etag);
-    if (!pointed) {
-      await removeDeploy(c.env, stored.id, owner);
-      return text("That name is taken; pick another.\n", 409);
-    }
+  }
+
+  let marking = Promise.resolve();
+  if (owner !== null) marking = markOwnedDeploy(c.env, owner, stored);
+  let pointed = true;
+  if (name !== undefined && claim !== null && owner !== null) pointed = await writePointer(c.env, name, owner, stored.id, claim.etag, claim.pointedId === null);
+  await marking;
+  if (!pointed) {
+    await removeDeploy(c.env, stored.id, owner ?? undefined);
+    return text("That name is taken; pick another.\n", 409);
   }
   return deployed(c, stored, name);
 }
