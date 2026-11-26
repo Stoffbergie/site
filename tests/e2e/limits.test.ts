@@ -18,27 +18,28 @@ async function deployCount(key: string): Promise<number> {
   return ((await listed.json()) as { deploys: unknown[] }).deploys.length;
 }
 
-test("deploys that store over 10 MB from one IPv6 /64 are limited, whatever address in it they come from", { timeout: 120_000 }, async () => {
+test("deploys that store over 10 MB, index included, from one IPv6 /64 are limited, whatever address in it they come from", { timeout: 120_000 }, async () => {
   const key = await apiKeyOf(newHome());
-  const network = `2001:db8:${randomBytes(2).toString("hex")}:${randomBytes(2).toString("hex")}`;
+  const networkGroup = randomBytes(2).toString("hex");
+  const network = `2001:db8:0:${networkGroup}`;
   const source = await upload("/big.bin", randomBytes(2_000_000), { authorization: `Bearer ${key}`, "cf-connecting-ip": `${network}::1` });
   assert.equal(source.status, 201, source.text);
   const sourceId = new URL(source.text.trim()).hostname.split(".")[0];
-  const twelveMegabytes = compactUpload(Array.from({ length: 6 }, (_, number) => ({ path: `copy-${number}.bin`, length: 2_000_000, reuse: { id: sourceId, file: 0 } })));
-  assert.ok(twelveMegabytes.byteLength < 1000);
+  const tenMegabytesOfFiles = compactUpload(Array.from({ length: 5 }, (_, number) => ({ path: `copy-${number}.bin`, length: 2_000_000, reuse: { id: sourceId, file: 0 } })));
+  assert.ok(tenMegabytesOfFiles.byteLength < 1000);
 
   let refused = null;
   let stored = 0;
   for (let attempt = 1; attempt <= BULK_ATTEMPTS && refused === null; attempt += 1) {
-    const address = `${network}:0:0:${attempt.toString(16)}:${randomBytes(2).toString("hex")}`;
-    const reply = await upload("/", twelveMegabytes, { authorization: `Bearer ${key}`, "cf-connecting-ip": address }, "POST");
+    const address = `2001:db8::${networkGroup}:0:${attempt.toString(16)}:${randomBytes(2).toString("hex")}:1`;
+    const reply = await upload("/", tenMegabytesOfFiles, { authorization: `Bearer ${key}`, "cf-connecting-ip": address }, "POST");
     if (reply.status === 429) refused = reply;
     else {
       assert.equal(reply.status, 201, reply.text);
       stored += 1;
     }
   }
-  assert.ok(refused, `${BULK_ATTEMPTS} deploys of 12 MB from one /64 were all stored`);
+  assert.ok(refused, `${BULK_ATTEMPTS} deploys of 10 MB of files from one /64 were all stored`);
   assert.equal(refused.headers["retry-after"], "60");
   assert.match(refused.text, /Too many requests/);
   assert.equal(await deployCount(key), stored + 1);
@@ -47,12 +48,12 @@ test("deploys that store over 10 MB from one IPv6 /64 are limited, whatever addr
     .split(":")
     .map((group) => group.padStart(4, "0"))
     .join(":");
-  const sameNetworkLongForm = await upload("/", twelveMegabytes, { authorization: `Bearer ${key}`, "cf-connecting-ip": `${expanded}:0000:0000:0000:0002` }, "POST");
+  const sameNetworkLongForm = await upload("/", tenMegabytesOfFiles, { authorization: `Bearer ${key}`, "cf-connecting-ip": `${expanded}:0000:0000:0000:0002` }, "POST");
   assert.equal(sameNetworkLongForm.status, 429, sameNetworkLongForm.text);
 
   const small = await upload("/page.html", "<h1>small</h1>", { authorization: `Bearer ${key}`, "cf-connecting-ip": `${network}::3` });
   assert.equal(small.status, 201, small.text);
 
-  const otherNetwork = await upload("/", twelveMegabytes, { authorization: `Bearer ${key}`, "cf-connecting-ip": `2001:db8:ffff:${randomBytes(2).toString("hex")}::1` }, "POST");
+  const otherNetwork = await upload("/", tenMegabytesOfFiles, { authorization: `Bearer ${key}`, "cf-connecting-ip": `2001:db8:ffff:${randomBytes(2).toString("hex")}::1` }, "POST");
   assert.equal(otherNetwork.status, 201, otherNetwork.text);
 });
