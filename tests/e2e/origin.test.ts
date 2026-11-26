@@ -229,3 +229,23 @@ test("a preflight to a site is answered and other writes stay refused", async ()
   assert.equal(post.headers.allow, preflight.headers.allow);
   assert.equal(post.headers.allow, "GET, HEAD, OPTIONS");
 });
+
+test("redirects and fallback pages carry the cross-origin headers", async () => {
+  const page = `<!doctype html><title>Page</title><h1>Page</h1>${"<p>Some text for compression.</p>".repeat(40)}`;
+  const { origin } = await originOf({ "index.html": page, "about.html": page, "docs/index.html": page, "200.html": page, "404.html": page });
+  const host = `https://${new URL(origin).hostname}`;
+  const requests = [
+    { path: "/docs", status: 308, vary: "Origin" },
+    { path: "/about/", status: 308, vary: "Origin" },
+    { path: "/some/route", status: 200, vary: "Accept-Encoding, Origin" },
+    { path: "/missing.png", status: 404, vary: "Accept-Encoding, Origin" }
+  ];
+  for (const { path, status, vary } of requests) {
+    const reply = await visit(host, path, { headers: { origin: "https://elsewhere.example", "accept-encoding": "gzip" } });
+    assert.equal(reply.status, status, path);
+    assert.equal(reply.headers["access-control-allow-origin"], "https://elsewhere.example", path);
+    assert.equal(reply.headers["access-control-allow-credentials"], "true", path);
+    assert.equal(reply.headers["cross-origin-resource-policy"], "cross-origin", path);
+    assert.equal(reply.headers.vary, vary, path);
+  }
+});
