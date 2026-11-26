@@ -1,9 +1,9 @@
+import { knownType } from "./types";
+
 export type ListedFile = { path: string; type: string; length: number };
 export type Listing = { spa: boolean; files: ListedFile[]; byPath: Map<string, number> };
 export type Target = { kind: "file"; number: number; status: 200 | 404 } | { kind: "folder" } | { kind: "page" } | { kind: "list" } | { kind: "missing" };
 export type ByteRange = { offset: number; length: number };
-
-const FILE_EXTENSION = /\.(html?|css|m?js|cjs|json|map|webmanifest|txt|md|csv|xml|svg|png|jpe?g|gif|webp|avif|ico|woff2?|ttf|otf|eot|wasm|pdf|mp4|webm|mp3|wav|ogg|zip|gz)$/i;
 
 /**
  * Maps a decoded request path to a file of a deploy. The Worker uses it for public sites and the service worker for encrypted ones, so both serve the same paths.
@@ -43,7 +43,7 @@ export function resolve(listing: Listing, pathname: string): Target {
   const underBasePath = basePathAsset(files, relative, exactly);
   if (underBasePath !== undefined) return { kind: "file", number: underBasePath, status: 200 };
 
-  const looksLikeRoute = !FILE_EXTENSION.test(relative);
+  const looksLikeRoute = knownType(relative) === null;
   const home = byPath.get("index.html");
   if (listing.spa && looksLikeRoute && home !== undefined) return { kind: "file", number: home, status: 200 };
   const appShell = byPath.get("200.html");
