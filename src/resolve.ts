@@ -16,17 +16,20 @@ export function resolve(listing: Listing, pathname: string): Target {
   } else {
     candidates.push(relative, `${relative}.html`, `${relative}.htm`);
   }
-  for (const candidate of candidates) {
-    const number = byPath.get(candidate);
+  const exactly = (path: string): number | undefined => byPath.get(path);
+  const foldedPaths = foldedPathsOf(files);
+  const ignoringCase = (path: string): number | undefined => foldedPaths.get(fold(path));
+  for (const lookup of [exactly, ignoringCase]) {
+    const number = firstMatch(candidates, lookup);
     if (number !== undefined) return { kind: "file", number, status: 200 };
+    if (relative.endsWith("/")) {
+      const withoutSlash = relative.slice(0, -1);
+      const page = firstMatch([withoutSlash, `${withoutSlash}.html`, `${withoutSlash}.htm`], lookup);
+      if (page !== undefined) return { kind: "page" };
+    }
+    const folderIndex = firstMatch([`${relative}/index.html`, `${relative}/index.htm`], lookup);
+    if (relative !== "" && folderIndex !== undefined) return { kind: "folder" };
   }
-  if (relative.endsWith("/")) {
-    const withoutSlash = relative.slice(0, -1);
-    const pages = [withoutSlash, `${withoutSlash}.html`, `${withoutSlash}.htm`];
-    if (pages.some((page) => byPath.has(page))) return { kind: "page" };
-  }
-  const isFolder = byPath.has(`${relative}/index.html`) || byPath.has(`${relative}/index.htm`);
-  if (relative !== "" && isFolder) return { kind: "folder" };
 
   if (relative === "") {
     if (files.length === 1) return { kind: "file", number: 0, status: 200 };
@@ -42,6 +45,33 @@ export function resolve(listing: Listing, pathname: string): Target {
   const notFoundPage = byPath.get("404.html");
   if (notFoundPage !== undefined) return { kind: "file", number: notFoundPage, status: 404 };
   return { kind: "missing" };
+}
+
+const foldedPathsCache = new WeakMap<ListedFile[], Map<string, number>>();
+
+function foldedPathsOf(files: ListedFile[]): Map<string, number> {
+  let folded = foldedPathsCache.get(files);
+  if (folded === undefined) {
+    folded = new Map();
+    for (const [position, file] of files.entries()) {
+      const key = fold(file.path);
+      if (!folded.has(key)) folded.set(key, position);
+    }
+    foldedPathsCache.set(files, folded);
+  }
+  return folded;
+}
+
+function fold(path: string): string {
+  return path.normalize("NFC").toLowerCase();
+}
+
+function firstMatch(paths: string[], lookup: (path: string) => number | undefined): number | undefined {
+  for (const path of paths) {
+    const number = lookup(path);
+    if (number !== undefined) return number;
+  }
+  return undefined;
 }
 
 export function folderLocation(url: URL): string {
