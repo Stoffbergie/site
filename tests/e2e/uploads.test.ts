@@ -1,0 +1,93 @@
+import { execFileSync } from "node:child_process";
+import { closeSync, openSync, ftruncateSync } from "node:fs";
+import { join } from "node:path";
+import { strict as assert } from "node:assert";
+import { test } from "vite-plus/test";
+import { baseUrl, folder, keyOf, newHome, runCli, upload, visit } from "../helpers/site";
+
+function pack(index: unknown, data: Buffer): Buffer {
+  const json = Buffer.from(JSON.stringify(index));
+  const length = Buffer.alloc(4);
+  length.writeUInt32BE(json.byteLength);
+  return Buffer.concat([Buffer.from("SITEPACK1\n"), length, json, data]);
+}
+
+test("curl -T deploys a single file with its type taken from the filename", async () => {
+  const root = folder({ "page.html": "<h1>From curl</h1>" });
+  const printed = execFileSync("curl", ["-fsS", "-T", join(root, "page.html"), baseUrl], { encoding: "utf8" });
+  assert.match(printed, /^https:\/\/[a-z0-9]{8}\.site\.test\n$/);
+  const url = printed.trim();
+
+  const home = await visit(url, "/");
+  assert.equal(home.text, "<h1>From curl</h1>");
+  assert.equal(home.headers["content-type"], "text/html; charset=utf-8");
+  assert.equal((await visit(url, "/page.html")).text, "<h1>From curl</h1>");
+});
+
+test("a pack is deployed exactly as described by its index", async () => {
+  const index = {
+    spa: false,
+    files: [
+      { path: "index.html", offset: 0, length: 5, type: "text/html; charset=utf-8", gzip: false },
+      { path: "a/b.txt", offset: 5, length: 3, type: "text/plain; charset=utf-8", gzip: false }
+    ]
+  };
+  const response = await upload("/", pack(index, Buffer.from("hello123")), { accept: "application/json" }, "POST");
+  assert.equal(response.status, 201, response.text);
+  const deployed = JSON.parse(response.text) as { url: string; files: number; size: number };
+  assert.equal(deployed.files, 2);
+  assert.equal(deployed.size, 8);
+  assert.equal((await visit(deployed.url, "/")).text, "hello");
+  assert.equal((await visit(deployed.url, "/a/b.txt")).text, "123");
+});
+
+test.each([
+  ["offsets that skip bytes", { spa: false, files: [{ path: "index.html", offset: 2, length: 3, type: "text/html", gzip: false }] }, "hello", /offsets do not line up/],
+  ["lengths that overrun the upload", { spa: false, files: [{ path: "index.html", offset: 0, length: 50, type: "text/html", gzip: false }] }, "hello", /do not add up/],
+  ["a path that climbs out", { spa: false, files: [{ path: "../etc/passwd", offset: 0, length: 5, type: "text/plain", gzip: false }] }, "hello", /bad path/],
+  [
+    "a duplicate path",
+    {
+      spa: false,
+      files: [
+        { path: "a", offset: 0, length: 2, type: "text/plain", gzip: false },
+        { path: "a", offset: 2, length: 3, type: "text/plain", gzip: false }
+      ]
+    },
+    "hello",
+    /twice/
+  ],
+  ["no spa flag", { files: [{ path: "a", offset: 0, length: 5, type: "text/plain", gzip: false }] }, "hello", /spa/]
+])("a pack with %s is refused and leaves nothing behind", async (_, index, data, message) => {
+  const home = newHome();
+  const key = await keyOf(home);
+  const response = await upload("/", pack(index, Buffer.from(data)), { authorization: `Bearer ${key}` }, "POST");
+  assert.equal(response.status, 400);
+  assert.match(response.text, message);
+  assert.match((await runCli(["ls"], { home })).stderr, /No deploys yet/);
+});
+
+test("a pack whose index is not JSON is refused", async () => {
+  const bytes = Buffer.concat([Buffer.from("SITEPACK1\n"), Buffer.from([0, 0, 0, 3]), Buffer.from("{{{")]);
+  const response = await upload("/", bytes, {}, "POST");
+  assert.equal(response.status, 400);
+  assert.match(response.text, /not valid JSON/);
+});
+
+test("the CLI checks the 100 MB limit before uploading", async () => {
+  const root = folder({ "index.html": "x" });
+  const handle = openSync(join(root, "huge.bin"), "w");
+  ftruncateSync(handle, 100_000_001);
+  closeSync(handle);
+  const home = newHome();
+  const result = await runCli(["--no-copy", root], { home });
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /^site: this deploy is 95\.4 MB and the limit is 100 MB; leave out large files or host them elsewhere\n$/);
+  assert.match((await runCli(["ls"], { home })).stderr, /No deploys yet/);
+});
+
+test("the CLI explains what it needs when given nothing to deploy", async () => {
+  assert.match((await runCli([])).stderr, /give a folder or files to deploy/);
+  assert.match((await runCli(["--no-copy", folder({ ".hidden": "x" })])).stderr, /has nothing to deploy/);
+  assert.match((await runCli(["--no-copy", "/no/such/place"])).stderr, /could not find \/no\/such\/place/);
+});
