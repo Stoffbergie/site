@@ -36,7 +36,7 @@ jobs:
           node-version: "24"
           cache: true
 
-      - run: vp exec playwright install --with-deps chromium
+      - run: vp exec playwright install --with-deps chromium firefox webkit
 
       - run: vp run check
 
