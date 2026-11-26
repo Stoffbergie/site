@@ -249,7 +249,10 @@ Add `-H 'Accept: application/json'` to a deploy for JSON. A deploy without a key
 | Files per deploy         | 5000                 |
 | Names per key            | 20                   |
 | Deploys and name changes | 30 per minute per IP |
+| Deploys storing >10 MB   | 5 per minute per IP  |
 | Lifetime                 | Until removed        |
+
+An IPv6 address counts as its /64 network. A deploy's stored size includes files reused from earlier deploys.
 
 </details>
 

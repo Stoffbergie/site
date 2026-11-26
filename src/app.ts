@@ -32,6 +32,9 @@ const SECURITY_HEADERS: Record<string, string> = {
   "X-Frame-Options": "DENY",
   "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 };
+const BULK_DEPLOY_BYTES = 10_000_000;
+const IPV6_GROUPS = 8;
+const IPV6_NETWORK_GROUPS = 4;
 
 export const app = new Hono<{ Bindings: Env }>();
 
@@ -176,7 +179,12 @@ async function deploy(c: AppContext, filename: string): Promise<Response> {
     claim = prepared;
   }
 
-  const result = await storeDeploy(c.env, c.req.raw, filename, owner);
+  const admitStoredBytes = async (storedBytes: number): Promise<boolean> => {
+    if (storedBytes <= BULK_DEPLOY_BYTES) return true;
+    return allowed(c, c.env.BULK);
+  };
+  const result = await storeDeploy(c.env, c.req.raw, filename, owner, admitStoredBytes);
+  if ("problem" in result && result.status === 429) return tooMany();
   if ("problem" in result) return text(`${result.problem}\n`, result.status);
   const stored = result.stored;
 
@@ -293,7 +301,35 @@ function same(a: string, b: string): boolean {
 async function allowed(c: AppContext, limiter: RateLimit): Promise<boolean> {
   const address = c.req.header("cf-connecting-ip");
   if (!address) return true;
-  return (await limiter.limit({ key: address })).success;
+  return (await limiter.limit({ key: clientKey(address) })).success;
+}
+
+function clientKey(address: string): string {
+  if (!address.includes(":")) return address;
+  return `${ipv6Network(address)}::/64`;
+}
+
+function ipv6Network(address: string): string {
+  const [before, after] = address.toLowerCase().split("::");
+  const leading = groupsOf(before);
+  const trailing = groupsOf(after);
+  const missing = Math.max(0, IPV6_GROUPS - widthOf(leading) - widthOf(trailing));
+  const groups = [...leading, ...Array<string>(missing).fill("0"), ...trailing];
+  return groups
+    .slice(0, IPV6_NETWORK_GROUPS)
+    .map((group) => parseInt(group, 16).toString(16))
+    .join(":");
+}
+
+function groupsOf(part: string | undefined): string[] {
+  if (!part) return [];
+  return part.split(":");
+}
+
+function widthOf(groups: string[]): number {
+  const embeddedIpv4 = groups.at(-1)?.includes(".") ?? false;
+  if (embeddedIpv4) return groups.length + 1;
+  return groups.length;
 }
 
 function siteUrl(label: string, domain: string): string {

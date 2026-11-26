@@ -33,7 +33,7 @@ const INDEX_BY_HEADER = "X-Site-Index";
 
 export type Deploy = { id: string; index: PackIndex; dataStart: number; byPath: Map<string, number> };
 export type Stored = { id: string; files: number; size: number; encrypted: Encrypted | null };
-export type StoreResult = { stored: Stored } | { problem: string; status: 400 | 411 | 412 | 413 };
+export type StoreResult = { stored: Stored } | { problem: string; status: 400 | 411 | 412 | 413 | 429 };
 export type Pointer = { id: string; owner: string };
 export type PointerRecord = { etag: string; pointer: Pointer | null; releasedBy: string | null };
 
@@ -56,7 +56,7 @@ export function ownedNameKey(owner: string, name: string): string {
   return `o/${owner}/n/${name}`;
 }
 
-export async function storeDeploy(env: Env, request: Request, filename: string, owner: string | null): Promise<StoreResult> {
+export async function storeDeploy(env: Env, request: Request, filename: string, owner: string | null, admitStoredBytes: (storedBytes: number) => Promise<boolean>): Promise<StoreResult> {
   const body = sizedBody(request);
   if ("problem" in body) return body;
 
@@ -112,6 +112,8 @@ export async function storeDeploy(env: Env, request: Request, filename: string, 
     source = taker.remaining([header, magic, head]);
     total = header.byteLength + body.length;
   }
+
+  if (!(await admitStoredBytes(total))) return { problem: "Too many requests; try again in a minute.", status: 429 };
 
   const size = index.files.reduce((sum, file) => sum + file.length, 0);
   let files = index.files.length;

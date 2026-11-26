@@ -3,6 +3,7 @@ export type Env = {
   ASSETS: Fetcher;
   DEPLOYS: RateLimit;
   LOOKUPS: RateLimit;
+  BULK: RateLimit;
   SITE_DOMAIN: string;
   SITE_TOKEN?: string;
 };

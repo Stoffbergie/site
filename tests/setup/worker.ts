@@ -16,9 +16,11 @@ declare module "vite-plus/test" {
 
 const siteDomain = "site.localhost";
 const adminToken = "test-admin-token";
+const bulkLimit = process.env.SITE_FAULTS ? 100_000 : 5;
 const testLimits = [
   { name: "DEPLOYS", namespace_id: "2006", simple: { limit: 100_000, period: 60 as const } },
-  { name: "LOOKUPS", namespace_id: "2007", simple: { limit: 100_000, period: 60 as const } }
+  { name: "LOOKUPS", namespace_id: "2007", simple: { limit: 100_000, period: 60 as const } },
+  { name: "BULK", namespace_id: "2010", simple: { limit: bulkLimit, period: 60 as const } }
 ];
 
 export default async function startWorker(project: TestProject): Promise<() => Promise<void>> {
