@@ -110,6 +110,7 @@ What it protects and what it doesn't:
 - Anyone with the full link can read the site. Share it like a password.
 - The server, and anyone with only the URL before `#`, cannot. They get a page saying the site is private.
 - The address of a page someone opens directly or hard-reloads reaches the server as a request path, like any URL. Contents, and the names of everything else, do not.
+- Re-opening the full link in a tab that already shows the site leaves the key in the address bar, where the page's scripts can read it, until the next navigation.
 - To take access away, remove the deploy with `site rm`, or release the name. There is no other revocation.
 - A name holding an encrypted site never turns public by accident: deploying to it without `-e` is refused.
 - It needs JavaScript and service workers, so it opens in current browsers but not in private windows that turn service workers off. Encrypting needs the CLI; there is no encrypted deploy through curl.
