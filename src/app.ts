@@ -5,7 +5,9 @@ import { homePage, homeText, notFoundPage } from "./pages";
 import {
   deployKey,
   encryptedName,
+  holdsTooMuch,
   isEncrypted,
+  MAX_DEPLOYS,
   MAX_NAMES,
   namesPointingAt,
   ownedDeploys,
@@ -177,6 +179,9 @@ async function deploy(c: AppContext, filename: string): Promise<Response> {
     const prepared = await prepareClaim(c, name, owner);
     if (prepared instanceof Response) return prepared;
     claim = prepared;
+  }
+  if (owner !== null && (await holdsTooMuch(c.env, owner))) {
+    return text(`A key can hold ${MAX_DEPLOYS} deploys and 5 GB; remove some with site rm <id> first.\n`, 403);
   }
 
   const admitStoredBytes = async (storedBytes: number): Promise<boolean> => {
