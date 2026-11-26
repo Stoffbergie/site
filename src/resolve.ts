@@ -3,6 +3,8 @@ export type Listing = { spa: boolean; files: ListedFile[]; byPath: Map<string, n
 export type Target = { kind: "file"; number: number; status: 200 | 404 } | { kind: "folder" } | { kind: "page" } | { kind: "list" } | { kind: "missing" };
 export type ByteRange = { offset: number; length: number };
 
+const FILE_EXTENSION = /\.(html?|css|m?js|cjs|json|map|webmanifest|txt|md|csv|xml|svg|png|jpe?g|gif|webp|avif|ico|woff2?|ttf|otf|eot|wasm|pdf|mp4|webm|mp3|wav|ogg|zip|gz)$/i;
+
 /**
  * Maps a decoded request path to a file of a deploy. The Worker uses it for public sites and the service worker for encrypted ones, so both serve the same paths.
  */
@@ -38,12 +40,15 @@ export function resolve(listing: Listing, pathname: string): Target {
     return { kind: "list" };
   }
 
-  const lastSegment = relative.split("/").pop() ?? "";
+  const looksLikeRoute = !FILE_EXTENSION.test(relative);
   const home = byPath.get("index.html");
-  if (listing.spa && !lastSegment.includes(".") && home !== undefined) return { kind: "file", number: home, status: 200 };
+  if (listing.spa && looksLikeRoute && home !== undefined) return { kind: "file", number: home, status: 200 };
+  const appShell = byPath.get("200.html");
+  if (appShell !== undefined && looksLikeRoute) return { kind: "file", number: appShell, status: 200 };
 
   const notFoundPage = byPath.get("404.html");
   if (notFoundPage !== undefined) return { kind: "file", number: notFoundPage, status: 404 };
+  if (looksLikeRoute && home !== undefined && isSinglePageApp(files)) return { kind: "file", number: home, status: 200 };
   return { kind: "missing" };
 }
 
@@ -113,6 +118,12 @@ export function parseRange(header: string, size: number): ByteRange | null {
   if (endText !== "") end = Math.min(Number(endText), size - 1);
   if (start > end) return null;
   return { offset: start, length: end - start + 1 };
+}
+
+function isSinglePageApp(files: ListedFile[]): boolean {
+  const pages = files.filter((file) => isHtml(file));
+  const hasScript = files.some((file) => file.type.startsWith("text/javascript"));
+  return pages.length === 1 && pages[0].path === "index.html" && hasScript;
 }
 
 function isHtml(file: ListedFile): boolean {
