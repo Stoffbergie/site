@@ -372,16 +372,25 @@ test("a cut-off answer to site rm is a failure, not a release", { timeout: 60_00
   assertPlainSentence(run);
 });
 
-function hangingResolver(): Record<string, string> {
+function hangingResolver(lookups: "every" | "first" = "every"): Record<string, string> {
   const root = mkdtempSync(join(tmpdir(), "site-resolver-"));
   const source = join(root, "hang.c");
+  const hangsEvery = lookups === "every" ? 1 : 0;
   writeFileSync(
     source,
-    `#include <netdb.h>
+    `#define _GNU_SOURCE
+#include <netdb.h>
 #include <unistd.h>
+#include <dlfcn.h>
+static int lookups;
 static int hang(const char *node, const char *service, const struct addrinfo *hints, struct addrinfo **found) {
-  for (;;) sleep(1000);
-  return 0;
+  if (${hangsEvery} || __sync_fetch_and_add(&lookups, 1) == 0) for (;;) sleep(1000);
+#ifdef __APPLE__
+  return getaddrinfo(node, service, hints, found);
+#else
+  int (*system)(const char *, const char *, const struct addrinfo *, struct addrinfo **) = dlsym(RTLD_NEXT, "getaddrinfo");
+  return system(node, service, hints, found);
+#endif
 }
 #ifdef __APPLE__
 __attribute__((used)) static struct { const void *replacement; const void *original; } interposed[] __attribute__((section("__DATA,__interpose"))) = { { (const void *)hang, (const void *)getaddrinfo } };
@@ -396,7 +405,7 @@ int getaddrinfo(const char *node, const char *service, const struct addrinfo *hi
     return { DYLD_INSERT_LIBRARIES: library };
   }
   const library = join(root, "hang.so");
-  execFileSync("cc", ["-shared", "-fPIC", "-o", library, source]);
+  execFileSync("cc", ["-shared", "-fPIC", "-o", library, source, "-ldl"]);
   return { LD_PRELOAD: library };
 }
 
@@ -408,6 +417,22 @@ test("a name lookup that never answers ends in one sentence instead of hanging",
   const seconds = (performance.now() - started) / 1000;
   assertPlainSentence(run);
   assert.ok(seconds < 150, `gave up in ${seconds}s`);
+});
+
+test("site point and site rm try again when the first name lookup times out", { timeout: 200_000 }, async () => {
+  const home = newHome();
+  const name = uniqueName("lookup");
+  await deploy(["--no-copy", "-n", name, folder({ "index.html": "<h1>first</h1>" })], { home });
+  const { label: spare } = await deploy(["--no-copy", folder({ "index.html": "<h1>spare</h1>" })], { home });
+  const { label: second } = await deploy(["--no-copy", folder({ "index.html": "<h1>second</h1>" })], { home });
+  const port = new URL(baseUrl).port;
+  const env = { SITE_URL: `http://localhost:${port}` };
+  const pointed = await runCli(["point", name, second], { home, env: { ...env, ...hangingResolver("first") } });
+  assert.equal(pointed.code, 0, pointed.stderr);
+  assert.equal((await visit(`https://${name}.${siteDomain}`, "/")).text, "<h1>second</h1>");
+  const removed = await runCli(["rm", spare], { home, env: { ...env, ...hangingResolver("first") } });
+  assert.equal(removed.code, 0, removed.stderr);
+  assert.equal((await visit(`https://${spare}.${siteDomain}`, "/")).status, 404);
 });
 
 test("spooled files and ciphertext never show in the temporary folder, even when the CLI is killed", { timeout: 90_000 }, async () => {

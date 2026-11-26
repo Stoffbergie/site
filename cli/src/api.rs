@@ -7,6 +7,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
+use ureq::unversioned::resolver::{DefaultResolver, ResolvedSocketAddrs, Resolver};
+use ureq::unversioned::transport::{DefaultConnector, NextTimeout};
 
 const DEFAULT_URL: &str = "https://site.stoff.dev";
 
@@ -143,9 +145,28 @@ enum Retry {
     BeforeServerActs,
 }
 
+#[derive(Debug, Default)]
+struct LookupResolver {
+    system: DefaultResolver,
+}
+
+impl Resolver for LookupResolver {
+    fn resolve(
+        &self,
+        uri: &ureq::http::Uri,
+        config: &ureq::config::Config,
+        timeout: NextTimeout,
+    ) -> Result<ResolvedSocketAddrs, ureq::Error> {
+        match self.system.resolve(uri, config, timeout) {
+            Err(ureq::Error::Io(_)) => Err(ureq::Error::HostNotFound),
+            resolved => resolved,
+        }
+    }
+}
+
 fn agent() -> ureq::Agent {
     let crypto = Arc::new(rustls::crypto::ring::default_provider());
-    ureq::Agent::config_builder()
+    let config = ureq::Agent::config_builder()
         .user_agent(concat!("site/", env!("CARGO_PKG_VERSION")))
         .timeout_resolve(Some(Duration::from_secs(RESOLVE_SECONDS)))
         .timeout_connect(Some(Duration::from_secs(15)))
@@ -157,8 +178,12 @@ fn agent() -> ureq::Agent {
                 .unversioned_rustls_crypto_provider(crypto)
                 .build(),
         )
-        .build()
-        .new_agent()
+        .build();
+    ureq::Agent::with_parts(
+        config,
+        DefaultConnector::default(),
+        LookupResolver::default(),
+    )
 }
 
 fn attempt<Job>(job: Job, total: u64) -> Attempt
@@ -243,6 +268,7 @@ fn retryable_error(error: &ureq::Error, retry: Retry) -> bool {
     match error {
         ureq::Error::Tls(_) | ureq::Error::Rustls(_) | ureq::Error::BadUri(_) => false,
         ureq::Error::HostNotFound | ureq::Error::ConnectionFailed => true,
+        ureq::Error::Timeout(ureq::Timeout::Resolve) => true,
         _ => retry == Retry::Always,
     }
 }
