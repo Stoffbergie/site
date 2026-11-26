@@ -24,7 +24,10 @@ type AppContext = Context<{ Bindings: Env }>;
 type Caller = { kind: "admin" } | { kind: "key"; owner: string } | { kind: "anonymous" } | { kind: "invalid" };
 type Claim = { etag: string | null; pointedId: string | null };
 
+type Pointing = "pointed" | "lost" | "holds encrypted";
+
 const RELEASED_BY_ADMIN = "admin";
+const POINTER_ATTEMPTS = 5;
 
 export const app = new Hono<{ Bindings: Env }>();
 
@@ -101,7 +104,11 @@ app.put("/names/:name", async (c) => {
   if (!targetEncrypted && (await holdsEncrypted(c, claim.pointedId))) {
     return text(`${name} holds an encrypted site; point it at a deploy encrypted for ${name}, or release it with site rm ${name} first.\n`, 409);
   }
-  if (!(await writePointer(c.env, name, caller.owner, id, claim.etag, claim.pointedId === null))) return text("That name changed while pointing it; try again.\n", 409);
+  const pointing = await pointName(c, name, caller.owner, id, claim, targetEncrypted);
+  if (pointing === "holds encrypted") {
+    return text(`${name} holds an encrypted site; point it at a deploy encrypted for ${name}, or release it with site rm ${name} first.\n`, 409);
+  }
+  if (pointing === "lost") return text("That name changed while pointing it; try again.\n", 409);
   const headers: Record<string, string> = {};
   if (targetEncrypted) headers["X-Site-Encrypted"] = "true";
   return text(`${siteUrl(name, c.env.SITE_DOMAIN)}\n`, 200, headers);
@@ -191,14 +198,32 @@ async function deploy(c: AppContext, filename: string): Promise<Response> {
 
   let marking = Promise.resolve();
   if (owner !== null) marking = markOwnedDeploy(c.env, owner, stored);
-  let pointed = true;
-  if (name !== undefined && claim !== null && owner !== null) pointed = await writePointer(c.env, name, owner, stored.id, claim.etag, claim.pointedId === null);
+  let pointing: Pointing = "pointed";
+  if (name !== undefined && claim !== null && owner !== null) pointing = await pointName(c, name, owner, stored.id, claim, stored.encrypted !== null);
   await marking;
-  if (!pointed) {
+  if (pointing === "holds encrypted") {
+    await removeDeploy(c.env, stored.id, owner ?? undefined);
+    return text(`${name} holds an encrypted site; deploy with -e to keep it private, or release it with site rm ${name} first.\n`, 409);
+  }
+  if (pointing === "lost") {
     await removeDeploy(c.env, stored.id, owner ?? undefined);
     return text("That name is taken; pick another.\n", 409);
   }
   return deployed(c, stored, name);
+}
+
+async function pointName(c: AppContext, name: string, owner: string, id: string, claim: Claim, encrypted: boolean): Promise<Pointing> {
+  let expected = claim.etag;
+  let markOwner = claim.pointedId === null;
+  for (let attempt = 0; attempt < POINTER_ATTEMPTS; attempt += 1) {
+    if (await writePointer(c.env, name, owner, id, expected, markOwner)) return "pointed";
+    const current = await readPointerRecord(c.env, name);
+    if (current === null || current.pointer?.owner !== owner) return "lost";
+    if (!encrypted && (await holdsEncrypted(c, current.pointer.id))) return "holds encrypted";
+    expected = current.etag;
+    markOwner = false;
+  }
+  return "lost";
 }
 
 async function prepareClaim(c: AppContext, name: string, owner: string): Promise<Claim | Response> {

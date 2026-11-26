@@ -1,3 +1,4 @@
+use crate::api::Progress;
 use crate::charset::{fit_charset, fit_charset_streamed};
 use crate::crypto::{self, LinkHint, LinkKey, Sealer};
 use crate::dotfiles::{self, DotName};
@@ -253,12 +254,13 @@ impl Pack {
         })
     }
 
-    pub fn reader(pack: &Arc<Pack>) -> PackReader {
+    pub fn reader(pack: &Arc<Pack>, progress: Arc<Progress>) -> PackReader {
         PackReader {
             pack: Arc::clone(pack),
             part: 0,
             current: None,
             sent: 0,
+            progress,
             show_progress: crate::output::stderr_is_terminal() && pack.total > 1_000_000,
             last_percent: u64::MAX,
         }
@@ -1129,6 +1131,7 @@ pub struct PackReader {
     part: usize,
     current: Option<(PartReader, usize)>,
     sent: u64,
+    progress: Arc<Progress>,
     show_progress: bool,
     last_percent: u64,
 }
@@ -1197,6 +1200,7 @@ impl Read for PackReader {
             };
             if count > 0 {
                 self.sent += count as u64;
+                self.progress.advance(count as u64);
                 self.report();
                 return Ok(count);
             }

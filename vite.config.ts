@@ -6,7 +6,8 @@ export default defineConfig({
   plugins: process.env.VITEST ? [] : [browserScripts(), cloudflare()],
   server: { host: "0.0.0.0", port: 8787, allowedHosts: true },
   test: {
-    include: ["tests/**/*.test.ts"],
+    include: process.env.SITE_FAULTS ? ["tests/faults/**/*.test.ts"] : ["tests/e2e/**/*.test.ts", "tests/nav/**/*.test.ts"],
+    sequence: { concurrent: Boolean(process.env.SITE_FAULTS) },
     globalSetup: ["tests/setup/worker.ts"],
     fileParallelism: false,
     testTimeout: 20_000,

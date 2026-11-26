@@ -197,7 +197,7 @@ test("the part of the key that makes private links is never sent to the server",
   const recorder = createServer((request, response) => {
     seen.push(`${request.url} ${JSON.stringify(request.headers)}`);
     request.resume();
-    request.on("end", () => response.writeHead(500).end("stop here\n"));
+    request.on("end", () => response.writeHead(400).end("stop here\n"));
   });
   await new Promise<void>((resolve) => recorder.listen(0, "127.0.0.1", resolve));
   const recorderUrl = `http://127.0.0.1:${(recorder.address() as AddressInfo).port}`;
