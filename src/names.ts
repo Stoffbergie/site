@@ -73,18 +73,29 @@ const lettersADigitPassesFor: Record<string, string> = { "0": "o", "1": "li", "3
 
 export const DEPLOY_ID_LENGTH = 8;
 
+export const UNOWNED_ID_PREFIX = "0";
+
 export function randomId(): string {
   while (true) {
-    let value = "";
-    while (value.length < DEPLOY_ID_LENGTH) {
-      for (const byte of crypto.getRandomValues(new Uint8Array(DEPLOY_ID_LENGTH))) {
-        if (byte >= 248) continue;
-        value += alphabet[byte % alphabet.length];
-        if (value.length === DEPLOY_ID_LENGTH) break;
-      }
-    }
+    const value = randomLabel(DEPLOY_ID_LENGTH);
     if (isDeployId(value)) return value;
   }
+}
+
+export function unownedId(): string {
+  return UNOWNED_ID_PREFIX + randomLabel(DEPLOY_ID_LENGTH - UNOWNED_ID_PREFIX.length);
+}
+
+function randomLabel(length: number): string {
+  let value = "";
+  while (value.length < length) {
+    for (const byte of crypto.getRandomValues(new Uint8Array(length))) {
+      if (byte >= 248) continue;
+      value += alphabet[byte % alphabet.length];
+      if (value.length === length) break;
+    }
+  }
+  return value;
 }
 
 export function isDeployId(label: string): boolean {

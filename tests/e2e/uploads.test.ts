@@ -4,7 +4,7 @@ import { closeSync, openSync, ftruncateSync } from "node:fs";
 import { join } from "node:path";
 import { strict as assert } from "node:assert";
 import { inject, test } from "vite-plus/test";
-import { apiKeyOf, baseUrl, folder, newHome, runCli, upload, visit, type Run } from "../helpers/site";
+import { adminToken, apiKeyOf, baseUrl, folder, newHome, runCli, upload, visit, type Run } from "../helpers/site";
 
 function pack(index: unknown, data: Buffer): Buffer {
   const json = Buffer.from(JSON.stringify(index));
@@ -140,4 +140,32 @@ test("the CLI explains what it needs when given nothing to deploy", async () => 
   assert.match((await runCli([])).stderr, /give a folder or files to deploy/);
   assert.match((await runCli(["--no-copy", folder({ ".hidden": "x" })])).stderr, /has nothing to deploy/);
   assert.match((await runCli(["--no-copy", "/no/such/place"])).stderr, /could not find \/no\/such\/place/);
+});
+
+test("deploys without a key get ids under d/0 for the 7 day lifecycle rule, and owned deploys never do", async () => {
+  const home = newHome();
+  const key = await apiKeyOf(home);
+  const unowned: string[] = [];
+  const owned: string[] = [];
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const anonymous = await upload("/page.html", `<h1>anonymous ${attempt}</h1>`);
+    assert.equal(anonymous.status, 201, anonymous.text);
+    unowned.push(new URL(anonymous.text.trim()).hostname.split(".")[0]);
+    const withKey = await upload("/page.html", `<h1>owned ${attempt}</h1>`, { authorization: `Bearer ${key}` });
+    assert.equal(withKey.status, 201, withKey.text);
+    owned.push(new URL(withKey.text.trim()).hostname.split(".")[0]);
+  }
+  const cli = await runCli(["--no-copy", folder({ "index.html": "<h1>cli</h1>" })], { home });
+  assert.equal(cli.code, 0, cli.stderr);
+  owned.push(new URL(cli.stdout.trim()).hostname.split(".")[0]);
+
+  for (const id of unowned) assert.match(id, /^0[a-z0-9]{7}$/);
+  for (const id of owned) assert.match(id, /^[1-9a-z][a-z0-9]{7}$/);
+  assert.equal((await visit(`https://${unowned[0]}.site.localhost`, "/")).text, "<h1>anonymous 0</h1>");
+
+  const removed = await upload(`/deploys/${unowned[0]}`, "", { authorization: `Bearer ${adminToken}` }, "DELETE");
+  assert.equal(removed.status, 200, removed.text);
+
+  const usage = await (await fetch(baseUrl)).text();
+  assert.match(usage, /made without one are removed after 7 days/);
 });
