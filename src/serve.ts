@@ -89,9 +89,10 @@ async function serveFile(request: Request, env: Env, ctx: ExecutionContext, depl
   const headers = contentHeaders(file.type, etag, status, named);
   let clientEncodings = request.headers.get("accept-encoding") ?? "";
   if (typeof request.cf?.clientAcceptEncoding === "string") clientEncodings = request.cf.clientAcceptEncoding;
-  const acceptsGzip = /\bgzip\b/.test(clientEncodings);
+  const encoding = storedEncoding(file);
+  const clientAccepts = encoding !== null && acceptsEncoding(clientEncodings, encoding);
 
-  if (file.gzip) {
+  if (encoding !== null) {
     headers.set("Vary", "Accept-Encoding");
   } else {
     headers.set("Accept-Ranges", "bytes");
@@ -101,7 +102,7 @@ async function serveFile(request: Request, env: Env, ctx: ExecutionContext, depl
   const rangeHeader = request.headers.get("range");
   const ifRange = request.headers.get("if-range");
   const rangeStillValid = ifRange === null || ifRange === etag;
-  if (!file.gzip && status === 200 && rangeHeader !== null && rangeStillValid) {
+  if (encoding === null && status === 200 && rangeHeader !== null && rangeStillValid) {
     const range = parseRange(rangeHeader, file.length);
     if (range === null) {
       headers.set("Content-Range", `bytes */${file.length}`);
@@ -115,14 +116,13 @@ async function serveFile(request: Request, env: Env, ctx: ExecutionContext, depl
     return new Response(object.body, { status: 206, headers });
   }
 
-  const sendGzipped = file.gzip && acceptsGzip;
-  if (sendGzipped) headers.set("Content-Encoding", "gzip");
-  if (!file.gzip || sendGzipped) headers.set("Content-Length", String(file.length));
+  if (encoding !== null && clientAccepts) headers.set("Content-Encoding", encoding);
+  if (encoding === null || clientAccepts) headers.set("Content-Length", String(file.length));
   if (request.method === "HEAD") return new Response(null, { status, headers, encodeBody: "manual" });
 
   const stored = await storedBytes(env, ctx, deploy, file, number);
   if (!stored) return noSite();
-  if (file.gzip && !acceptsGzip) return new Response(stored.pipeThrough(new DecompressionStream("gzip")), { status, headers });
+  if (encoding !== null && !clientAccepts) return new Response(stored.pipeThrough(new DecompressionStream(decompressionFormat(encoding))), { status, headers });
   return new Response(stored, { status, headers, encodeBody: "manual" });
 }
 
@@ -158,6 +158,25 @@ function contentHeaders(type: string, etag: string, status: number, named: boole
     "Access-Control-Allow-Origin": "*",
     "Cache-Control": cacheControl,
     ETag: etag
+  });
+}
+
+function storedEncoding(file: PackFile): "br" | "gzip" | null {
+  if (file.br) return "br";
+  if (file.gzip) return "gzip";
+  return null;
+}
+
+function decompressionFormat(encoding: "br" | "gzip"): "brotli" | "gzip" {
+  if (encoding === "br") return "brotli";
+  return "gzip";
+}
+
+function acceptsEncoding(clientEncodings: string, encoding: string): boolean {
+  return clientEncodings.split(",").some((part) => {
+    const [token, ...parameters] = part.toLowerCase().split(";");
+    const refused = parameters.some((parameter) => /^\s*q=0(\.0*)?\s*$/.test(parameter));
+    return token.trim() === encoding && !refused;
   });
 }
 

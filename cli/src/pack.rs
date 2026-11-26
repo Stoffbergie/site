@@ -4,7 +4,6 @@ use crate::dotfiles::{self, DotName};
 use crate::rules::{self, Rules};
 use crate::types;
 use anyhow::{Context, Result, bail};
-use flate2::Compression;
 use flate2::bufread::GzDecoder;
 use flate2::write::GzEncoder;
 use serde::Serialize;
@@ -34,6 +33,8 @@ struct Entry {
     #[serde(rename = "type")]
     content_type: &'static str,
     gzip: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    br: bool,
 }
 
 #[derive(Serialize)]
@@ -103,6 +104,10 @@ impl Pack {
             bail!("that is {files_to_keep} files; a deploy holds at most {MAX_FILES}");
         }
         let rule_texts = rule_texts(&sources)?;
+        let compression = match link_key {
+            None => Compression::Brotli,
+            Some(_) => Compression::Gzip,
+        };
         let mut entries = Vec::with_capacity(sources.len());
         let mut bodies = Vec::with_capacity(sources.len());
         let mut copies_left_out = 0;
@@ -114,21 +119,21 @@ impl Pack {
                 }
                 _ => Unpacked::AsIs,
             };
-            let (content_type, body, gzip) = match unpacked {
+            let (content_type, body, stored) = match unpacked {
                 Unpacked::CopyOfOriginal => {
                     copies_left_out += 1;
                     continue;
                 }
                 Unpacked::Decoded(content_type, decoded) => {
                     let content_type = fit_charset(content_type, &decoded);
-                    let (body, gzip) = smaller(decoded, true);
-                    (content_type, body, gzip)
+                    let (body, stored) = smaller(decoded, Some(compression));
+                    (content_type, body, stored)
                 }
                 Unpacked::AsIs => {
                     let content_type = content_type(&path, &source)?;
-                    let (body, gzip, content_type) =
-                        prepare(source, compressible(&path), content_type)?;
-                    (content_type, body, gzip)
+                    let compress = compressible(&path).then_some(compression);
+                    let (body, stored, content_type) = prepare(source, compress, content_type)?;
+                    (content_type, body, stored)
                 }
             };
             let length = body.length();
@@ -137,7 +142,8 @@ impl Pack {
                 offset,
                 length,
                 content_type,
-                gzip,
+                gzip: stored == Stored::Gzip,
+                br: stored == Stored::Brotli,
             });
             bodies.push(body);
             offset += length;
@@ -417,25 +423,25 @@ fn walk(
 
 fn prepare(
     source: Source,
-    compress: bool,
+    compress: Option<Compression>,
     content_type: &'static str,
-) -> Result<(Plain, bool, &'static str)> {
+) -> Result<(Plain, Stored, &'static str)> {
     let path = match source {
         Source::Stdin => {
             let mut bytes = Vec::new();
             std::io::stdin().read_to_end(&mut bytes)?;
             let content_type = fit_charset(content_type, &bytes);
-            let (body, gzip) = smaller(bytes, compress);
-            return Ok((body, gzip, content_type));
+            let (body, stored) = smaller(bytes, compress);
+            return Ok((body, stored, content_type));
         }
         Source::Path(path) => path,
     };
-    if compress {
+    if compress.is_some() {
         let bytes =
             std::fs::read(&path).with_context(|| format!("could not read {}", path.display()))?;
         let content_type = fit_charset(content_type, &bytes);
-        let (body, gzip) = smaller(bytes, compress);
-        return Ok((body, gzip, content_type));
+        let (body, stored) = smaller(bytes, compress);
+        return Ok((body, stored, content_type));
     }
     let file = File::open(&path).with_context(|| format!("could not read {}", path.display()))?;
     let content_type = fit_charset_streamed(content_type, file)
@@ -446,20 +452,57 @@ fn prepare(
         length,
         open: None,
     };
-    Ok((file, false, content_type))
+    Ok((file, Stored::Identity, content_type))
 }
 
-fn smaller(bytes: Vec<u8>, compress: bool) -> (Plain, bool) {
-    if compress {
-        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
-        let compressed = encoder.write_all(&bytes).and_then(|()| encoder.finish());
-        if let Ok(compressed) = compressed
-            && compressed.len() < bytes.len()
-        {
-            return (Plain::bytes(compressed), true);
-        }
+#[derive(Clone, Copy)]
+enum Compression {
+    Brotli,
+    Gzip,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Stored {
+    Identity,
+    Gzip,
+    Brotli,
+}
+
+fn smaller(bytes: Vec<u8>, compress: Option<Compression>) -> (Plain, Stored) {
+    let compressed = match compress {
+        None => None,
+        Some(Compression::Brotli) => brotli_bytes(&bytes).ok().map(|out| (out, Stored::Brotli)),
+        Some(Compression::Gzip) => gzip_bytes(&bytes).ok().map(|out| (out, Stored::Gzip)),
+    };
+    if let Some((compressed, stored)) = compressed
+        && compressed.len() < bytes.len()
+    {
+        return (Plain::bytes(compressed), stored);
     }
-    (Plain::bytes(bytes), false)
+    (Plain::bytes(bytes), Stored::Identity)
+}
+
+fn gzip_bytes(bytes: &[u8]) -> std::io::Result<Vec<u8>> {
+    let mut encoder = GzEncoder::new(Vec::new(), flate2::Compression::default());
+    encoder.write_all(bytes)?;
+    encoder.finish()
+}
+
+fn brotli_bytes(bytes: &[u8]) -> std::io::Result<Vec<u8>> {
+    let quality = brotlic::Quality::best();
+    let window = brotlic::WindowSize::default();
+    let bound = brotlic::compress_bound(bytes.len(), quality).unwrap_or(bytes.len() + 1024);
+    let mut compressed = vec![0; bound];
+    let written = brotlic::compress(
+        bytes,
+        &mut compressed,
+        quality,
+        window,
+        brotlic::CompressionMode::Generic,
+    )
+    .map_err(std::io::Error::other)?;
+    compressed.truncate(written);
+    Ok(compressed)
 }
 
 #[derive(Clone, Copy)]
@@ -477,7 +520,7 @@ enum Unpacked {
 
 enum Decoder {
     Gzip(GzDecoder<BufReader<File>>),
-    Brotli(Box<brotli_decompressor::Decompressor<BufReader<File>>>),
+    Brotli(Box<brotlic::DecompressorReader<BufReader<File>>>),
 }
 
 impl Decoder {
@@ -493,20 +536,14 @@ impl Decoder {
         if use_gzip {
             return Ok(Decoder::Gzip(GzDecoder::new(input)));
         }
-        let decompressor = brotli_decompressor::Decompressor::new(input, 4096);
+        let decompressor = brotlic::DecompressorReader::new(input);
         Ok(Decoder::Brotli(Box::new(decompressor)))
     }
 
     fn input_finished(&mut self) -> std::io::Result<bool> {
         match self {
             Decoder::Gzip(decoder) => Ok(decoder.get_mut().fill_buf()?.is_empty()),
-            Decoder::Brotli(decoder) => {
-                let mut probe = [0u8; 1];
-                if decoder.read(&mut probe)? > 0 {
-                    return Ok(false);
-                }
-                Ok(decoder.get_mut().fill_buf()?.is_empty())
-            }
+            Decoder::Brotli(decoder) => Ok(decoder.get_mut().fill_buf()?.is_empty()),
         }
     }
 }

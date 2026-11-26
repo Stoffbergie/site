@@ -16,7 +16,7 @@ const MAX_TYPE_LENGTH = 200;
 const ENTRY_TYPE = "application/octet-stream";
 const SALT_PATTERN = /^[A-Za-z0-9_-]{22}$/;
 
-export type PackFile = { path: string; offset: number; length: number; type: string; gzip: boolean };
+export type PackFile = { path: string; offset: number; length: number; type: string; gzip: boolean; br?: boolean };
 export type Encrypted = { name?: string; linkSalt?: string; contentSalt: string };
 export type PackIndex = { spa: boolean; files: PackFile[]; encrypted?: Encrypted; rules?: SiteRules };
 export type IndexCheck = { index: PackIndex } | { problem: string };
@@ -68,15 +68,19 @@ export function checkIndex(json: Uint8Array, dataLength: number): IndexCheck {
   for (const entry of files as unknown[]) {
     const file = entry as Partial<PackFile> | null;
     if (typeof file !== "object" || file === null) return { problem: "Every pack entry must be an object." };
-    const { path, offset, length, type, gzip } = file;
+    const { path, offset, length, type, gzip, br } = file;
     if (typeof path !== "string" || !validPath(path)) return { problem: `The pack has a file with a bad path: ${JSON.stringify(path)}.` };
     if (seen.has(path)) return { problem: `The pack lists ${path} twice.` };
     if (offset !== expectedOffset) return { problem: `The pack's offsets do not line up at ${path}.` };
     if (!Number.isSafeInteger(length) || (length as number) < 0) return { problem: `The pack has a bad length for ${path}.` };
     if (typeof type !== "string" || type.length === 0 || type.length > MAX_TYPE_LENGTH || !/^[\x20-\x7e]+$/.test(type)) return { problem: `The pack has a bad content type for ${path}.` };
     if (typeof gzip !== "boolean") return { problem: `The pack needs a gzip flag for ${path}.` };
+    if (br !== undefined && typeof br !== "boolean") return { problem: `The pack has a bad br flag for ${path}.` };
+    if (br === true && gzip) return { problem: `The pack marks ${path} as both gzip and br.` };
     seen.add(path);
-    checked.push({ path, offset, length: length as number, type, gzip });
+    const checkedFile: PackFile = { path, offset, length: length as number, type, gzip };
+    if (br === true) checkedFile.br = true;
+    checked.push(checkedFile);
     expectedOffset += length as number;
   }
   if (expectedOffset !== dataLength) return { problem: "The pack's file lengths do not add up to the upload size." };
