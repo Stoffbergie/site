@@ -1,0 +1,67 @@
+---
+name: site
+description: Deploys static files to a live URL with the site CLI, including naming a site, redeploying, rolling back and removing deploys. Use when a request involves site.stoff.dev, publishing a built folder, an HTML page or a preview link for static files. Not for developing, deploying, or releasing the site repository.
+---
+
+# Site
+
+Produce a working URL for static files. Deploys stay until removed; there are no accounts. A key on the machine owns deploys and names.
+
+## Choose what to deploy
+
+- Deploy the built output the request is about (`dist`, `build`, `public`, a single page), not the source tree. Build first if the request implies it; site does not build anything.
+- One folder deploys its contents as the site root. Several files each land at the root under their filename; a folder cannot be mixed with files. `-` deploys stdin as `index.html`. Dotfiles, dot-directories and `node_modules` are skipped, so check that the files the site needs are not hidden.
+- Pass `--spa` only for client-side-routed apps that need `index.html` on unknown paths.
+- Pass `--no-copy` on every deploy, including in terminals and pseudo-terminals, unless the user explicitly asks to copy the link.
+- Check `command -v site` and `site --help`. If absent, install with `brew install stoffbergie/tap/site` where Homebrew is available, or use a binary from [official releases](https://github.com/Stoffbergie/site/releases).
+- The default server is `https://site.stoff.dev`. Preserve an existing `SITE_URL` and `SITE_KEY`.
+
+## Deploy
+
+```sh
+site --no-copy dist
+site --no-copy dist -n todo
+site --no-copy index.html style.css
+make report | site --no-copy -
+```
+
+Capture the link when another command needs it:
+
+```sh
+url=$(site --no-copy dist)
+```
+
+Check the exit status before using the result. Stdout holds one link; details go to stderr. With `-n`, stdout is the named URL and the deploy's own URL is on stderr.
+
+Everything goes up in one request and is live when the link prints. The CLI refuses deploys over 100 MB or 5000 files before uploading; leave out large files rather than retrying.
+
+## Names
+
+`-n todo` points `https://todo.site.stoff.dev` at the new deploy. The first use claims the name for this machine's key; later deploys with the same key move it, and the change is visible on the next load. "That name is taken" means another key owns it: pick another name, do not retry. Use a name only when the user wants a stable URL; one-off previews need no name.
+
+Names are 3 to 40 lowercase letters, digits and hyphens. Reserved words and brand or credential words (bank, login, paypal and similar) are refused anywhere in the name.
+
+## List, roll back and remove
+
+```sh
+site ls
+site point todo k3m9xq2a
+site rm k3m9xq2a
+site rm todo
+```
+
+`site point` moves a name to one of your earlier deploys. `site rm` deletes a deploy, or releases a name; a deploy a name points at is refused until the name moves. Remove deploys you made for a one-off task or for verification when done. Do not remove deploys or names the request does not cover.
+
+A removed deploy may keep serving from the edge cache for up to 5 minutes. A released name stops at once.
+
+## Keys
+
+`site key` prints the key that owns this machine's deploys and names. Never print, log or share it unless the user asks to move it to another machine. `site key <key>` saves a key from another machine; it refuses to replace a different key without a terminal confirmation. Do not delete the config file to force a replacement: the old key's sites would become unmanageable from here. In CI, set `SITE_KEY` instead of saving a key.
+
+## Verify and recover
+
+- Fetch the printed URL (and a page or asset that matters) and check the status and content before reporting it works. A printed link alone does not prove the right files went up.
+- For a named redeploy, fetch the named URL and confirm the new content; it is never stale.
+- If a deploy fails, nothing was stored. Fix the cause the error names and deploy again.
+
+Report the URL, what was actually verified, and any remaining blocker.
