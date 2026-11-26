@@ -26,7 +26,8 @@ export const MAX_NAMES = 20;
 export const EDGE_SECONDS = 300;
 const HEAD_READ_BYTES = 65_536;
 const CHARSET_SNIFF_BYTES = 65_536;
-const MEMORY_ENTRIES = 500;
+const MEMORY_BYTES = 16_000_000;
+const MEMORY_ENTRY_BYTES = 1024;
 export const EXPIRES_HEADER = "X-Site-Expires";
 const INDEX_BY_HEADER = "X-Site-Index";
 
@@ -36,7 +37,8 @@ export type StoreResult = { stored: Stored } | { problem: string; status: 400 | 
 export type Pointer = { id: string; owner: string };
 export type PointerRecord = { etag: string; pointer: Pointer | null; releasedBy: string | null };
 
-const memory = new Map<string, { deploy: Deploy; expiresAt: number }>();
+const memory = new Map<string, { deploy: Deploy; expiresAt: number; charge: number }>();
+let memoryBytes = 0;
 
 export function deployKey(id: string): string {
   return `d/${id}`;
@@ -152,7 +154,7 @@ export async function removeDeploy(env: Env, id: string, owner: string | undefin
   const keys = [deployKey(id)];
   if (owner) keys.push(ownedDeployKey(owner, id));
   await env.SITES.delete(keys);
-  memory.delete(id);
+  forget(id);
 }
 
 export async function loadDeploy(env: Env, id: string): Promise<Deploy | null> {
@@ -179,7 +181,7 @@ export async function loadDeploy(env: Env, id: string): Promise<Deploy | null> {
   const index = decodeIndex(header.bytes.subarray(PREAMBLE_LENGTH), header.writtenByWorker);
   const byPath = byPathOf(index.files);
   const deploy = { id, index, dataStart: header.bytes.byteLength, byPath };
-  remember(id, deploy, header.expiresAt);
+  remember(id, deploy, header.expiresAt, header.bytes.byteLength);
   return deploy;
 }
 
@@ -203,13 +205,22 @@ async function readHeader(env: Env, id: string): Promise<{ bytes: Uint8Array; wr
   return { bytes: new Uint8Array(await whole.arrayBuffer()), writtenByWorker };
 }
 
-function remember(id: string, deploy: Deploy, expiresAt: number): void {
-  memory.delete(id);
-  memory.set(id, { deploy, expiresAt });
-  if (memory.size > MEMORY_ENTRIES) {
+function remember(id: string, deploy: Deploy, expiresAt: number, headerBytes: number): void {
+  forget(id);
+  const charge = headerBytes + MEMORY_ENTRY_BYTES;
+  memory.set(id, { deploy, expiresAt, charge });
+  memoryBytes += charge;
+  while (memoryBytes > MEMORY_BYTES) {
     const oldest = memory.keys().next().value as string;
-    memory.delete(oldest);
+    forget(oldest);
   }
+}
+
+function forget(id: string): void {
+  const remembered = memory.get(id);
+  if (!remembered) return;
+  memory.delete(id);
+  memoryBytes -= remembered.charge;
 }
 
 export async function readPointerRecord(env: Env, name: string): Promise<PointerRecord | null> {
