@@ -806,14 +806,14 @@ add("kitchen", "img srcset", async (t) => {
 add("kitchen", "video plays and seeks", async (t) => {
   await warm(t, "/", "kitchen");
   const seeked = await t.eval(
-    `new Promise((done) => { const video = document.getElementById("video"); const ready = () => { if (video.readyState >= 2) done("ok"); else video.addEventListener("canplay", () => done("ok"), { once: true }); }; const seek = () => { video.addEventListener("seeked", ready, { once: true }); video.currentTime = 2; }; video.addEventListener("error", () => done("error " + (video.error && video.error.code))); if (video.readyState >= 1) seek(); else video.addEventListener("loadedmetadata", seek, { once: true }); if (video.networkState === 3) done("no source"); })`
+    `new Promise((done) => { const video = document.getElementById("video"); const started = Date.now(); const ready = () => { if (video.readyState >= 2) done("ok"); else if (Date.now() - started > 10000) done("state " + video.readyState); else setTimeout(ready, 50); }; const seek = () => { video.addEventListener("seeked", ready, { once: true }); video.currentTime = 2; }; video.addEventListener("error", () => done("error " + (video.error && video.error.code))); if (video.readyState >= 1) seek(); else video.addEventListener("loadedmetadata", seek, { once: true }); if (video.networkState === 3) done("no source"); })`
   );
   assert.equal(seeked, "ok");
 });
 add("kitchen", "audio plays and seeks", async (t) => {
   await warm(t, "/", "kitchen");
   const seeked = await t.eval(
-    `new Promise((done) => { const audio = document.getElementById("audio"); const ready = () => { if (audio.readyState >= 2) done("ok"); else audio.addEventListener("canplay", () => done("ok"), { once: true }); }; const seek = () => { audio.addEventListener("seeked", ready, { once: true }); audio.currentTime = 2; }; audio.addEventListener("error", () => done("error " + (audio.error && audio.error.code))); if (audio.readyState >= 1) seek(); else audio.addEventListener("loadedmetadata", seek, { once: true }); })`
+    `new Promise((done) => { const audio = document.getElementById("audio"); const started = Date.now(); const ready = () => { if (audio.readyState >= 2) done("ok"); else if (Date.now() - started > 10000) done("state " + audio.readyState); else setTimeout(ready, 50); }; const seek = () => { audio.addEventListener("seeked", ready, { once: true }); audio.currentTime = 2; }; audio.addEventListener("error", () => done("error " + (audio.error && audio.error.code))); if (audio.readyState >= 1) seek(); else audio.addEventListener("loadedmetadata", seek, { once: true }); })`
   );
   assert.equal(seeked, "ok");
 });
