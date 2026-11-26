@@ -3,10 +3,12 @@ use crate::dotfiles::{self, DotName};
 use crate::types;
 use anyhow::{Context, Result, bail};
 use flate2::Compression;
+use flate2::bufread::GzDecoder;
 use flate2::write::GzEncoder;
 use serde::Serialize;
+use std::collections::HashMap;
 use std::fs::File;
-use std::io::{IsTerminal, Read, Write};
+use std::io::{BufRead, BufReader, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
 
 pub const MAGIC: &[u8] = b"SITEPACK1\n";
@@ -78,18 +80,47 @@ impl Pack {
         if link_key.is_some() {
             dotfiles::note_private_well_known(sources.iter().map(|(path, _)| path.as_str()));
         }
-        if sources.len() > MAX_FILES {
-            bail!(
-                "that is {} files; a deploy holds at most {MAX_FILES}",
-                sources.len()
-            );
+        let originals: HashMap<String, PathBuf> = sources
+            .iter()
+            .filter_map(|(path, source)| match source {
+                Source::Path(file) => Some((path.clone(), file.clone())),
+                Source::Stdin => None,
+            })
+            .collect();
+        let copies = sources
+            .iter()
+            .filter(|(path, _)| original_of(path, &originals).is_some())
+            .count();
+        let files_to_keep = sources.len() - copies;
+        if files_to_keep > MAX_FILES {
+            bail!("that is {files_to_keep} files; a deploy holds at most {MAX_FILES}");
         }
         let mut entries = Vec::with_capacity(sources.len());
         let mut bodies = Vec::with_capacity(sources.len());
+        let mut copies_left_out = 0;
         let mut offset = 0;
         for (path, source) in sources {
-            let content_type = content_type(&path, &source)?;
-            let (body, gzip) = prepare(source, compressible(&path))?;
+            let unpacked = match (&source, precompressed(&path)) {
+                (Source::Path(file), Some((inner, encoding))) => {
+                    unpack(&path, inner, encoding, file, &originals)?
+                }
+                _ => Unpacked::AsIs,
+            };
+            let (content_type, body, gzip) = match unpacked {
+                Unpacked::CopyOfOriginal => {
+                    copies_left_out += 1;
+                    continue;
+                }
+                Unpacked::Decoded(content_type, decoded) => {
+                    let (body, gzip) = smaller(decoded, true);
+                    (content_type, body, gzip)
+                }
+                Unpacked::AsIs => {
+                    let content_type = content_type(&path, &source)?;
+                    let (body, gzip) = prepare(source, compressible(&path))?;
+                    (content_type, body, gzip)
+                }
+            };
             let length = body.length();
             entries.push(Entry {
                 path,
@@ -100,6 +131,17 @@ impl Pack {
             });
             bodies.push(body);
             offset += length;
+        }
+        if entries.len() > MAX_FILES {
+            bail!(
+                "that is {} files; a deploy holds at most {MAX_FILES}",
+                entries.len()
+            );
+        }
+        if copies_left_out > 0 {
+            crate::output::note(&format!(
+                "Left out {copies_left_out} precompressed copies of files in the deploy; site compresses those itself"
+            ));
         }
         let (json, parts, data_length) = match link_key {
             None => {
@@ -338,6 +380,186 @@ fn smaller(bytes: Vec<u8>, compress: bool) -> (Plain, bool) {
         }
     }
     (Plain::bytes(bytes), false)
+}
+
+#[derive(Clone, Copy)]
+enum Encoding {
+    Gzip,
+    Brotli,
+    Detect,
+}
+
+enum Unpacked {
+    CopyOfOriginal,
+    Decoded(&'static str, Vec<u8>),
+    AsIs,
+}
+
+enum Decoder {
+    Gzip(GzDecoder<BufReader<File>>),
+    Brotli(Box<brotli_decompressor::Decompressor<BufReader<File>>>),
+}
+
+impl Decoder {
+    fn open(file: &Path, encoding: Encoding) -> Result<Decoder> {
+        let opened =
+            File::open(file).with_context(|| format!("could not read {}", file.display()))?;
+        let mut input = BufReader::new(opened);
+        let use_gzip = match encoding {
+            Encoding::Gzip => true,
+            Encoding::Brotli => false,
+            Encoding::Detect => input.fill_buf()?.starts_with(&[0x1f, 0x8b]),
+        };
+        if use_gzip {
+            return Ok(Decoder::Gzip(GzDecoder::new(input)));
+        }
+        let decompressor = brotli_decompressor::Decompressor::new(input, 4096);
+        Ok(Decoder::Brotli(Box::new(decompressor)))
+    }
+
+    fn input_finished(&mut self) -> std::io::Result<bool> {
+        match self {
+            Decoder::Gzip(decoder) => Ok(decoder.get_mut().fill_buf()?.is_empty()),
+            Decoder::Brotli(decoder) => {
+                let mut probe = [0u8; 1];
+                if decoder.read(&mut probe)? > 0 {
+                    return Ok(false);
+                }
+                Ok(decoder.get_mut().fill_buf()?.is_empty())
+            }
+        }
+    }
+}
+
+impl Read for Decoder {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        let count = match self {
+            Decoder::Gzip(decoder) => decoder.read(buffer)?,
+            Decoder::Brotli(decoder) => decoder.read(buffer)?,
+        };
+        if count == 0 && !buffer.is_empty() && !self.input_finished()? {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "bytes after the compressed stream",
+            ));
+        }
+        Ok(count)
+    }
+}
+
+fn precompressed(path: &str) -> Option<(&str, Encoding)> {
+    let lower = path.to_ascii_lowercase();
+    let suffixes = [
+        (".gz", Encoding::Gzip),
+        (".br", Encoding::Brotli),
+        (".unityweb", Encoding::Detect),
+    ];
+    for (suffix, encoding) in suffixes {
+        if lower.ends_with(suffix) && lower.len() > suffix.len() {
+            return Some((&path[..path.len() - suffix.len()], encoding));
+        }
+    }
+    None
+}
+
+fn original_of<'a>(path: &str, originals: &'a HashMap<String, PathBuf>) -> Option<&'a PathBuf> {
+    match precompressed(path) {
+        Some((inner, Encoding::Gzip | Encoding::Brotli)) => originals.get(inner),
+        _ => None,
+    }
+}
+
+fn unpack(
+    path: &str,
+    inner: &str,
+    encoding: Encoding,
+    file: &Path,
+    originals: &HashMap<String, PathBuf>,
+) -> Result<Unpacked> {
+    let unity_file = matches!(encoding, Encoding::Detect);
+    let served_decoded = unity_file || decoded_on_arrival(inner);
+    let original = original_of(path, originals);
+    if served_decoded {
+        let Some(decoded) = decode_within_limit(path, file, encoding)? else {
+            return Ok(Unpacked::AsIs);
+        };
+        if let Some(original) = original
+            && same_contents(decoded.as_slice(), original)
+        {
+            return Ok(Unpacked::CopyOfOriginal);
+        }
+        let head_length = decoded.len().min(types::SNIFF_BYTES as usize);
+        let content_type = match types::known(inner) {
+            Some(known) => known,
+            None => types::sniffed(&decoded[..head_length]),
+        };
+        return Ok(Unpacked::Decoded(content_type, decoded));
+    }
+    if let Some(original) = original
+        && same_contents(Decoder::open(file, encoding)?, original)
+    {
+        return Ok(Unpacked::CopyOfOriginal);
+    }
+    Ok(Unpacked::AsIs)
+}
+
+fn decode_within_limit(path: &str, file: &Path, encoding: Encoding) -> Result<Option<Vec<u8>>> {
+    let decoder = Decoder::open(file, encoding)?;
+    let mut decoded = Vec::new();
+    if decoder
+        .take(MAX_DEPLOY_BYTES + 1)
+        .read_to_end(&mut decoded)
+        .is_err()
+    {
+        return Ok(None);
+    }
+    if decoded.len() as u64 > MAX_DEPLOY_BYTES {
+        bail!("{path} unpacks to more than the 100 MB a deploy can hold");
+    }
+    Ok(Some(decoded))
+}
+
+fn same_contents(mut decoded: impl Read, original: &Path) -> bool {
+    let Ok(mut original) = File::open(original) else {
+        return false;
+    };
+    let mut decoded_chunk = vec![0u8; 65536];
+    let mut original_chunk = vec![0u8; 65536];
+    loop {
+        let decoded_count = fill(&mut decoded, &mut decoded_chunk);
+        let original_count = fill(&mut original, &mut original_chunk);
+        let (Ok(decoded_count), Ok(original_count)) = (decoded_count, original_count) else {
+            return false;
+        };
+        if decoded_chunk[..decoded_count] != original_chunk[..original_count] {
+            return false;
+        }
+        if decoded_count == 0 {
+            return true;
+        }
+    }
+}
+
+fn fill(reader: &mut impl Read, buffer: &mut [u8]) -> std::io::Result<usize> {
+    let mut filled = 0;
+    while filled < buffer.len() {
+        let count = reader.read(&mut buffer[filled..])?;
+        if count == 0 {
+            break;
+        }
+        filled += count;
+    }
+    Ok(filled)
+}
+
+fn decoded_on_arrival(inner: &str) -> bool {
+    if inner.to_ascii_lowercase().ends_with(".symbols.json") {
+        return true;
+    }
+    matches!(
+        extension(inner).as_str(),
+        "html" | "htm" | "css" | "js" | "mjs" | "svg" | "wasm" | "data" | "pck" | "mem"
+    )
 }
 
 fn extension(path: &str) -> String {
