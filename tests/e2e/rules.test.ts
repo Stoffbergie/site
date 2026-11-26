@@ -443,6 +443,18 @@ test("a 404 rewrite never answers with a listing", async () => {
   assert.equal(reply.text, "Not found\n");
 });
 
+test("a 200 rewrite to a root without a page is a 404, and serves a lone page when there is one", async () => {
+  const several = await deploy(["--no-copy", folder({ _redirects: "/legacy  /  200\n", "a.html": "a", "b.html": "b" })]);
+  const missing = await visit(several.url, "/legacy");
+  assert.equal(missing.status, 404);
+  assert.equal(missing.text, "Not found\n");
+
+  const lone = await deploy(["--no-copy", folder({ _redirects: "/legacy  /  200\n", "page.html": "the only page" })]);
+  const served = await visit(lone.url, "/legacy");
+  assert.equal(served.status, 200);
+  assert.equal(served.text, "the only page");
+});
+
 test("redirects compare the query and find it only before the fragment", async () => {
   const lines = ["/page  /page?view=all  301!", "/frag  /new#part?x  301"];
   const { url, run } = await deploy(["--no-copy", folder({ _redirects: lines.join("\n"), "page.html": "page", "new.html": "new" })]);

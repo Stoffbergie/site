@@ -215,7 +215,10 @@ function rewriteTarget(listing: Listing, destination: URL, status: 200 | 404): T
   let page = findVisiblePage(listing, path);
   if (page !== null && page.kind === "redirect") page = findVisiblePage(listing, page.path);
   if (page !== null && page.kind === "file") return { kind: "file", number: page.number, status };
-  if (page === null && status === 200 && collapseSlashes(path) === "/") return resolveVisible(listing, "/");
+  if (page === null && status === 200 && collapseSlashes(path) === "/") {
+    const root = resolveVisible(listing, "/");
+    if (root.kind === "file" && root.status === 200) return root;
+  }
   return notFoundTarget(listing);
 }
 
