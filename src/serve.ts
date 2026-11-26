@@ -59,7 +59,9 @@ async function serveEncrypted(request: Request, env: Env, ctx: ExecutionContext,
     if (number >= deploy.index.files.length) return notFound();
     return serveFile(request, env, ctx, deploy, number, 200, named);
   }
-  return new Response(privateSitePage(), { headers: { "Content-Type": "text/html; charset=utf-8", "X-Content-Type-Options": "nosniff", "Cache-Control": REVALIDATE } });
+  return new Response(privateSitePage(), {
+    headers: { "Content-Type": "text/html; charset=utf-8", "X-Content-Type-Options": "nosniff", "Cache-Control": REVALIDATE, "Referrer-Policy": "no-referrer" }
+  });
 }
 
 function script(source: string, extraHeaders: Record<string, string>): Response {

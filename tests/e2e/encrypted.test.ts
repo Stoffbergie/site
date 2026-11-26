@@ -51,6 +51,7 @@ test("every path without the key gets the same private bootstrap page", async ()
     const page = await visit(host, path, { headers: { accept: "text/html" } });
     assert.equal(page.status, 200);
     assert.equal(page.headers["cache-control"], "no-cache, no-transform");
+    assert.equal(page.headers["referrer-policy"], "no-referrer");
     assert.match(page.text, /This site is private/);
     assert.match(page.text, /<script src="\/__site\/boot\.js"><\/script>/);
     assert.doesNotMatch(page.text, /Hidden|about/);

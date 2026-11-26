@@ -8,8 +8,7 @@ mod crypto;
 mod output;
 mod pack;
 
-const PRIVATE_LINKS_NEED_WHOLE_KEY: &str =
-    "Private links need the whole key; set SITE_KEY to everything site key prints to see them";
+const PRIVATE_LINKS_NEED_WHOLE_KEY: &str = "Private links need the whole key; unset SITE_KEY on the machine that made them, run site key there and use everything it prints";
 
 #[derive(Parser)]
 #[command(
