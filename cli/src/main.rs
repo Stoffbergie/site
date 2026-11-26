@@ -1,8 +1,9 @@
 use anyhow::Result;
-use clap::{Parser, Subcommand};
+use args::Command;
 use crypto::LinkKey;
 
 mod api;
+mod args;
 mod charset;
 mod config;
 mod crypto;
@@ -15,79 +16,17 @@ mod types;
 
 const PRIVATE_LINKS_NEED_WHOLE_KEY: &str = "Private links need the whole key, including the part after the dot; use the key that made them";
 
-#[derive(Parser)]
-#[command(
-    name = "site",
-    version,
-    about = "Static sites, live in one command",
-    args_conflicts_with_subcommands = true,
-    after_help = "Examples:\n  site dist                      Deploy a folder and print its URL\n  site dist -n todo              Also point todo.site.stoff.dev at it\n  site dist -e                   Encrypt it; only the full link opens it\n  site index.html style.css      Deploy loose files at the root\n  cat page.html | site -         Deploy stdin as index.html\n  site dist --spa                Serve index.html for client-side routes\n  site ls                        List your names and deploys\n  site point todo k3m9xq2a       Point a name at an earlier deploy\n  site rm k3m9xq2a               Delete a deploy (or release a name)\n  site key                       Print your key, to use on another machine\n\nSet SITE_KEY to use a key without saving it, and SITE_URL to use another server."
-)]
-struct Cli {
-    #[command(subcommand)]
-    command: Option<Command>,
-
-    #[arg(help = "A folder, files, or - for stdin")]
-    paths: Vec<String>,
-
-    #[arg(
-        short,
-        long,
-        help = "Point this name at the deploy, like todo for todo.site.stoff.dev"
-    )]
-    name: Option<String>,
-
-    #[arg(
-        short,
-        long,
-        help = "Encrypt the site on this machine; only the printed link, with its key after #, opens it"
-    )]
-    encrypt: bool,
-
-    #[arg(
-        long,
-        help = "Serve index.html for unknown paths without a file extension"
-    )]
-    spa: bool,
-
-    #[arg(long, help = "Leave the clipboard unchanged after deploying")]
-    no_copy: bool,
-}
-
-#[derive(Subcommand)]
-enum Command {
-    #[command(about = "List your names and deploys")]
-    Ls,
-    #[command(about = "Point a name at one of your deploys")]
-    Point {
-        #[arg(help = "Name, like todo")]
-        name: String,
-        #[arg(help = "Deploy id, like k3m9xq2a")]
-        id: String,
-    },
-    #[command(about = "Delete a deploy or release a name")]
-    Rm {
-        #[arg(help = "Deploy id or name")]
-        target: String,
-    },
-    #[command(about = "Print your key, or save a key from another machine")]
-    Key {
-        #[arg(help = "A key printed by site key on another machine")]
-        key: Option<String>,
-    },
-}
-
 fn main() {
-    if let Err(error) = run(Cli::parse()) {
+    if let Err(error) = run(args::parse()) {
         eprintln!("site: {error:#}");
         std::process::exit(1);
     }
 }
 
-fn run(cli: Cli) -> Result<()> {
-    match cli.command {
-        Some(Command::Ls) => list(),
-        Some(Command::Point { name, id }) => {
+fn run(command: Command) -> Result<()> {
+    match command {
+        Command::Ls => list(),
+        Command::Point { name, id } => {
             let key = config::key()?;
             let pointed = api::point(&key.api, &name, &id)?;
             let mut link = pointed.url.clone();
@@ -103,7 +42,7 @@ fn run(cli: Cli) -> Result<()> {
             println!("{link}");
             Ok(())
         }
-        Some(Command::Rm { target }) => {
+        Command::Rm { target } => {
             let key = config::key()?;
             if api::is_deploy_id(&target) {
                 api::delete_deploy(&key.api, &target)?;
@@ -115,12 +54,18 @@ fn run(cli: Cli) -> Result<()> {
             }
             Ok(())
         }
-        Some(Command::Key { key: None }) => {
+        Command::Key { key: None } => {
             println!("{}", config::key()?.full());
             Ok(())
         }
-        Some(Command::Key { key: Some(key) }) => config::replace(&key),
-        None => deploy(cli.paths, cli.name, cli.spa, cli.no_copy, cli.encrypt),
+        Command::Key { key: Some(key) } => config::replace(&key),
+        Command::Deploy {
+            paths,
+            name,
+            encrypt,
+            spa,
+            no_copy,
+        } => deploy(paths, name, spa, no_copy, encrypt),
     }
 }
 
