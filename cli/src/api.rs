@@ -74,6 +74,8 @@ const SEND_BUFFER_ESTIMATE: f64 = 262_144.0;
 const LARGEST_SEND_BUFFER: f64 = 4_194_304.0;
 const SLOWEST_LINK_BYTES_PER_SECOND: f64 = 8_000.0;
 const LONGEST_RETRY_WAIT: u64 = 60;
+const RESOLVE_SECONDS: u64 = 15;
+const SHUTDOWN_SECONDS: u64 = 15;
 
 pub struct Progress {
     started: Instant,
@@ -145,6 +147,7 @@ fn agent() -> ureq::Agent {
     let crypto = Arc::new(rustls::crypto::ring::default_provider());
     ureq::Agent::config_builder()
         .user_agent(concat!("site/", env!("CARGO_PKG_VERSION")))
+        .timeout_resolve(Some(Duration::from_secs(RESOLVE_SECONDS)))
         .timeout_connect(Some(Duration::from_secs(15)))
         .timeout_recv_body(Some(Duration::from_secs(STALL_SECONDS as u64)))
         .http_status_as_error(false)
@@ -178,7 +181,7 @@ where
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 if progress.stalled() {
                     agent.shutdown();
-                    let _ = receiver.recv();
+                    let _ = receiver.recv_timeout(Duration::from_secs(SHUTDOWN_SECONDS));
                     return Attempt::Stalled;
                 }
             }

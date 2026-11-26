@@ -1,7 +1,8 @@
 import { strict as assert } from "node:assert";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { request as httpRequest } from "node:http";
 import { inject, test } from "vite-plus/test";
@@ -354,4 +355,42 @@ test("a cut-off answer to site rm is a failure, not a release", { timeout: 60_00
   const { home, name } = await namedSite();
   const run = await through(() => ({ kind: "cutResponse", status: 200, body: "rel", declaredLength: 64, hang: false }), ["rm", name], home);
   assertPlainSentence(run);
+});
+
+function hangingResolver(): Record<string, string> {
+  const root = mkdtempSync(join(tmpdir(), "site-resolver-"));
+  const source = join(root, "hang.c");
+  writeFileSync(
+    source,
+    `#include <netdb.h>
+#include <unistd.h>
+static int hang(const char *node, const char *service, const struct addrinfo *hints, struct addrinfo **found) {
+  for (;;) sleep(1000);
+  return 0;
+}
+#ifdef __APPLE__
+__attribute__((used)) static struct { const void *replacement; const void *original; } interposed[] __attribute__((section("__DATA,__interpose"))) = { { (const void *)hang, (const void *)getaddrinfo } };
+#else
+int getaddrinfo(const char *node, const char *service, const struct addrinfo *hints, struct addrinfo **found) { return hang(node, service, hints, found); }
+#endif
+`
+  );
+  if (process.platform === "darwin") {
+    const library = join(root, "hang.dylib");
+    execFileSync("cc", ["-dynamiclib", "-o", library, source]);
+    return { DYLD_INSERT_LIBRARIES: library };
+  }
+  const library = join(root, "hang.so");
+  execFileSync("cc", ["-shared", "-fPIC", "-o", library, source]);
+  return { LD_PRELOAD: library };
+}
+
+test("a name lookup that never answers ends in one sentence instead of hanging", { timeout: 200_000 }, async () => {
+  const { home } = await namedSite();
+  const port = new URL(baseUrl).port;
+  const started = performance.now();
+  const run = await runCli(["ls"], { home, env: { SITE_URL: `http://lookup-hangs.invalid:${port}`, ...hangingResolver() } });
+  const seconds = (performance.now() - started) / 1000;
+  assertPlainSentence(run);
+  assert.ok(seconds < 150, `gave up in ${seconds}s`);
 });
