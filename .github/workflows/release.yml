@@ -101,6 +101,7 @@ jobs:
 
       - name: Build
         working-directory: cli
+        shell: bash
         run: cargo build --release --target "$TARGET"
         env:
           TARGET: ${{ matrix.target }}
